@@ -102,6 +102,94 @@ func TestMergeStructUpdateTo(t *testing.T) {
 	}
 }
 
+func TestFilterStructTo_PointerToSlice(t *testing.T) {
+	type Source struct {
+		Field1 *[]string `readxs:"*"`
+	}
+
+	type Filtered struct {
+		Field1 []string
+	}
+
+	source := &Source{
+		Field1: &[]string{"value1", "value2"},
+	}
+
+	var filtered Filtered
+	err := FilterStructTo(source, &filtered, []string{"user"}, true)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	expected := Filtered{
+		Field1: []string{"value1", "value2"},
+	}
+
+	if !reflect.DeepEqual(filtered, expected) {
+		t.Errorf("Expected filtered struct: %+v, got: %+v", expected, filtered)
+	}
+}
+
+func TestFilterStructTo_AgentExample(t *testing.T) {
+	type AgentWriteDto struct {
+		Name                *string   `json:"name" validate:"omitempty,min=1,max=255" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		Description         *string   `json:"description" validate:"omitempty,max=1024" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		ModelID             *string   `json:"model_id" validate:"omitempty,min=1,max=64" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		AvatarURL           *string   `json:"avatar_url" validate:"omitempty,url" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		SystemMessages      *[]string `json:"system_messages" validate:"omitempty,unique,dive,min=1,max=1024" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		InitialUserMessages *[]string `json:"initial_user_messages" validate:"omitempty,unique,dive,min=1,max=1024" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		AttachedFileIDs     *[]string `json:"attached_file_ids" validate:"omitempty,unique,dive,min=1,max=64" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		AssignedTools       *[]string `json:"assigned_tools" validate:"omitempty,unique,dive,min=1,max=64" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+	}
+
+	type Agent struct {
+		ID                  string   `json:"id" validate:"required,min=1,max=64" xswrite:"system" xsread:"system,admin,owner,org"`
+		Name                string   `json:"name" validate:"required,min=1,max=255" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		Description         string   `json:"description" validate:"omitempty,max=1024" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		ModelID             string   `json:"model_id" validate:"required,min=1,max=64" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		AvatarURL           string   `json:"avatar_url" validate:"omitempty,url" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		SystemMessages      []string `json:"system_messages" validate:"unique,dive,min=1,max=1024" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		InitialUserMessages []string `json:"initial_user_messages" validate:"unique,dive,min=1,max=1024" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		AttachedFileIDs     []string `json:"attached_file_ids" validate:"unique,dive,min=1,max=64" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		AssignedTools       []string `json:"assigned_tools" validate:"unique,dive,min=1,max=64" xswrite:"system,admin,owner" xsread:"system,admin,owner,org"`
+		OwnerId             string   `json:"owner_id" validate:"required,min=1,max=64" xswrite:"system,admin" xsread:"system,admin,owner,org"`
+		OwnerOrganizationId string   `json:"owner_organization_id" validate:"required,min=1,max=64" xswrite:"system,admin" xsread:"system,admin,owner,org"`
+		CreatedAt           int64    `json:"created_at" xswrite:"system,admin" xsread:"system,admin,owner,org"`
+		UpdatedBy           string   `json:"updated_by" validate:"omitempty,min=1,max=64" xswrite:"system,admin" xsread:"system,admin,owner,org"`
+		UpdatedAt           int64    `json:"updated_at" xswrite:"system,admin" xsread:"system,admin,owner,org"`
+	}
+
+	agentWriteDto := &AgentWriteDto{
+		Name:           strPtr("Agent Name"),
+		Description:    strPtr("Agent Description"),
+		ModelID:        strPtr("model123"),
+		AvatarURL:      strPtr("https://example.com/avatar.png"),
+		SystemMessages: &[]string{"System message 1", "System message 2"},
+	}
+
+	var agent Agent
+	err := FilterStructTo(agentWriteDto, &agent, []string{"admin", "owner"}, true)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	expected := Agent{
+		Name:           "Agent Name",
+		Description:    "Agent Description",
+		ModelID:        "model123",
+		AvatarURL:      "https://example.com/avatar.png",
+		SystemMessages: []string{"System message 1", "System message 2"},
+	}
+
+	if !reflect.DeepEqual(agent, expected) {
+		t.Errorf("Expected filtered struct: %+v, got: %+v", expected, agent)
+	}
+}
+
+func strPtr(s string) *string {
+	return &s
+}
+
 func TestFilterStructFor(t *testing.T) {
 	mergedStruct := &TestStruct{
 		Field1: "merged value",

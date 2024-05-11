@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const Version = "1.0.0"
+const Version = "1.1.0"
 
 var (
 	ErrTargetStructMustBePointer   = errors.New("targetStruct must be a pointer to a struct")
@@ -173,13 +173,24 @@ func FilterStructTo(sourceStruct any, filteredStruct any, xsList []string, zeroD
 		}
 
 		if sourceField.Type() != filteredField.Type() {
-			if sourceField.Kind() == reflect.Ptr && filteredField.Kind() != reflect.Ptr &&
-				sourceField.Type().Elem() == filteredField.Type() {
-				// Source field is a pointer and filtered field is not, but the underlying types match
-				if !sourceField.IsNil() {
-					filteredField.Set(sourceField.Elem())
-				} else if !zeroDisallowed {
-					filteredField.Set(reflect.Zero(filteredField.Type()))
+			if sourceField.Kind() == reflect.Ptr && filteredField.Kind() != reflect.Ptr {
+				if sourceField.Type().Elem() == filteredField.Type() {
+					// Source field is a pointer and filtered field is not, but the underlying types match
+					if !sourceField.IsNil() {
+						filteredField.Set(sourceField.Elem())
+					} else if !zeroDisallowed {
+						filteredField.Set(reflect.Zero(filteredField.Type()))
+					}
+				} else if sourceField.Type().Elem().Kind() == reflect.Slice && filteredField.Type().Kind() == reflect.Slice &&
+					sourceField.Type().Elem().Elem() == filteredField.Type().Elem() {
+					// Source field is a pointer to a slice and filtered field is a non-pointer slice
+					if !sourceField.IsNil() {
+						filteredField.Set(reflect.ValueOf(sourceField.Elem().Interface()))
+					} else if !zeroDisallowed {
+						filteredField.Set(reflect.Zero(filteredField.Type()))
+					}
+				} else {
+					return fmt.Errorf("%w: %s, expected %v, got %v", ErrFieldTypeMismatch, field.Name, filteredField.Type(), sourceField.Type())
 				}
 			} else if sourceField.Kind() != reflect.Ptr && filteredField.Kind() == reflect.Ptr &&
 				sourceField.Type() == filteredField.Type().Elem() {
