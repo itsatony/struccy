@@ -10,10 +10,116 @@
 To install the struccy package, run the following command:
 
 ```bash
-Copy codego get github.com/itsatony/struccy
+go get github.com/itsatony/struccy
 ```
 
-## Usage
+## JSON Tagging for `xsread` and `xswrite`
+
+The `struccy` package introduces two special JSON tags, `xsread` and `xswrite`, which allow you to control the visibility of struct fields based on roles or scenarios. These tags provide a flexible way to include or exclude fields during struct filtering and merging operations.
+
+### `xsread` Tag
+
+The `xsread` tag is used to specify the roles or scenarios for which a field should be included when reading or filtering a struct. It accepts a comma-separated list of strings representing the allowed roles or scenarios.
+
+Example:
+
+```go
+type User struct {
+ Name     string `json:"name"`
+ Email    string `json:"email" xsread:"admin,user"`
+ Password string `json:"password" xsread:"admin"`
+}
+```
+
+In this example, the `Email` field is tagged with `xsread:"admin,user"`, indicating that it should be included when filtering the struct for roles "admin" or "user". The `Password` field is tagged with `xsread:"admin"`, indicating that it should be included only when filtering for the "admin" role.
+
+### `xswrite` Tag
+
+The `xswrite` tag is used to specify the roles or scenarios for which a field should be included when writing or merging a struct. It follows the same format as the `xsread` tag, accepting a comma-separated list of strings representing the allowed roles or scenarios.
+
+Example:
+
+```go
+type User struct {
+ Name     string `json:"name"`
+ Email    string `json:"email" xswrite:"admin,user"`
+ Password string `json:"password" xswrite:"admin"`
+}
+```
+
+In this example, the `Email` field is tagged with `xswrite:"admin,user"`, indicating that it should be included when merging the struct for roles "admin" or "user". The `Password` field is tagged with `xswrite:"admin"`, indicating that it should be included only when merging for the "admin" role.
+
+### Special Characters
+
+The `xsread` and `xswrite` tags support two special characters:
+
+- `*`: Represents all roles or scenarios. When used, it includes the field for any role or scenario.
+- `!`: Represents a negation. When used before a role or scenario, it excludes the field for that specific role or scenario.
+
+Example:
+
+```go
+type User struct {
+ Name     string `json:"name"`
+ Email    string `json:"email" xsread:"*"`
+ Password string `json:"password" xsread:"*,!public"`
+}
+```
+
+In this example, the `Email` field is tagged with `xsread:"*"`, indicating that it should be included for all roles or scenarios. The `Password` field is tagged with `xsread:"*,!public"`, indicating that it should be included for all roles or scenarios except for the "public" role.
+
+### Usage in `FilterStructTo` and `MergeStructUpdateTo`
+
+The `FilterStructTo` and `MergeStructUpdateTo` functions in the `struccy` package utilize the `xsread` and `xswrite` tags to determine which fields should be included based on the provided roles or scenarios.
+
+The `isFieldAccessAllowed` helper function is used internally to check if a field should be included based on the specified tags and the given roles or scenarios.
+
+Example usage of `FilterStructTo`:
+
+```go
+user := User{
+ Name:     "John Doe",
+ Email:    "john@example.com",
+ Password: "secret",
+}
+
+var filteredUser User
+err := struccy.FilterStructTo(&user, &filteredUser, []string{"user"}, true)
+if err != nil {
+ log.Fatal(err)
+}
+fmt.Printf("%+v\n", filteredUser)
+// Output: {Name:John Doe Email:john@example.com Password:}
+```
+
+In this example, the `FilterStructTo` function is called with the `user` struct, and the roles or scenarios are specified as `[]string{"user"}`. Based on the `xsread` tags, the `Name` and `Email` fields are included in the filtered struct, while the `Password` field is excluded.
+
+Example usage of `MergeStructUpdateTo`:
+
+```go
+existingUser := User{
+ Name:  "John Doe",
+ Email: "john@example.com",
+}
+
+updatedUser := User{
+ Email:    "johndoe@example.com",
+ Password: "newpassword",
+}
+
+err := struccy.MergeStructUpdateTo(&updatedUser, &existingUser, []string{"admin"})
+if err != nil {
+ log.Fatal(err)
+}
+fmt.Printf("%+v\n", existingUser)
+// Output: {Name:John Doe Email:johndoe@example.com Password:newpassword}
+```
+
+In this example, the `MergeStructUpdateTo` function is called with the `updatedUser` struct, and the roles or scenarios are specified as `[]string{"admin"}`. Based on the `xswrite` tags, the `Email` and `Password` fields are merged into the `existingUser` struct.
+
+By leveraging the `xsread` and `xswrite` tags, you can control the visibility of struct fields based on roles or scenarios, providing a flexible way to filter and merge structs according to your application's requirements.
+
+## General Usage
 
 ### MergeStructUpdateTo
 

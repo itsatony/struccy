@@ -263,7 +263,7 @@ func StructToJSONFields(structPtr any, fieldNames []string) (string, error) {
 // an error (`ErrInvalidStructPointer`).
 //
 // If a specified field name does not exist in the struct, it is silently ignored.
-func StructToMapFields(structPtr any, fieldNames []string) (map[string]interface{}, error) {
+func StructToMapFields(structPtr any, fieldNames []string) (map[string]any, error) {
 	structValue := reflect.ValueOf(structPtr)
 
 	if structValue.Kind() != reflect.Ptr || structValue.Elem().Kind() != reflect.Struct {
@@ -273,7 +273,7 @@ func StructToMapFields(structPtr any, fieldNames []string) (map[string]interface
 	structValue = structValue.Elem()
 	structType := structValue.Type()
 
-	fieldMap := make(map[string]interface{})
+	fieldMap := make(map[string]any)
 
 	for _, fieldName := range fieldNames {
 		field, ok := structType.FieldByName(fieldName)
@@ -296,7 +296,7 @@ func StructToMapFields(structPtr any, fieldNames []string) (map[string]interface
 //
 // If the provided `structPtr` is not a pointer to a struct, the function returns
 // an error (`ErrInvalidStructPointer`).
-func StructToMap(structPtr any) (map[string]interface{}, error) {
+func StructToMap(structPtr any) (map[string]any, error) {
 	structValue := reflect.ValueOf(structPtr)
 
 	if structValue.Kind() != reflect.Ptr || structValue.Elem().Kind() != reflect.Struct {
@@ -306,7 +306,7 @@ func StructToMap(structPtr any) (map[string]interface{}, error) {
 	structValue = structValue.Elem()
 	structType := structValue.Type()
 
-	fieldMap := make(map[string]interface{})
+	fieldMap := make(map[string]any)
 
 	for i := 0; i < structType.NumField(); i++ {
 		field := structType.Field(i)
