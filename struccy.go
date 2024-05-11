@@ -263,6 +263,191 @@ func StructToJSONFields(structPtr any, fieldNames []string) (string, error) {
 	return string(jsonBytes), nil
 }
 
+// GetFieldNames returns a slice of field names for the given struct pointer.
+// It uses reflection to iterate over the fields of the struct and collect their names.
+//
+// If the provided `structPtr` is not a pointer to a struct, the function returns
+// an error (`ErrInvalidStructPointer`).
+func GetFieldNames(structPtr any) ([]string, error) {
+	structValue := reflect.ValueOf(structPtr)
+
+	if structValue.Kind() != reflect.Ptr || structValue.Elem().Kind() != reflect.Struct {
+		return nil, ErrInvalidStructPointer
+	}
+
+	structType := structValue.Elem().Type()
+	numFields := structType.NumField()
+
+	fieldNames := make([]string, numFields)
+	for i := 0; i < numFields; i++ {
+		fieldNames[i] = structType.Field(i).Name
+	}
+
+	return fieldNames, nil
+}
+
+// GetFieldNamesWithReadXS returns a slice of field names for the given struct pointer,
+// filtered by the specified read access rules (xsList).
+// It uses reflection to iterate over the fields of the struct and collect the names
+// of fields that have read access allowed based on the provided xsList.
+//
+// If the provided `structPtr` is not a pointer to a struct, the function returns
+// an error (`ErrInvalidStructPointer`).
+func GetFieldNamesWithReadXS(structPtr any, xsList []string) ([]string, error) {
+	structValue := reflect.ValueOf(structPtr)
+
+	if structValue.Kind() != reflect.Ptr || structValue.Elem().Kind() != reflect.Struct {
+		return nil, ErrInvalidStructPointer
+	}
+
+	structType := structValue.Elem().Type()
+	numFields := structType.NumField()
+
+	fieldNames := make([]string, 0)
+	for i := 0; i < numFields; i++ {
+		field := structType.Field(i)
+		readXS := field.Tag.Get("readxs")
+		if isFieldAccessAllowed(xsList, readXS) {
+			fieldNames = append(fieldNames, field.Name)
+		}
+	}
+
+	return fieldNames, nil
+}
+
+// GetFieldNamesWithWriteXS returns a slice of field names for the given struct pointer,
+// filtered by the specified write access rules (xsList).
+// It uses reflection to iterate over the fields of the struct and collect the names
+// of fields that have write access allowed based on the provided xsList.
+//
+// If the provided `structPtr` is not a pointer to a struct, the function returns
+// an error (`ErrInvalidStructPointer`).
+func GetFieldNamesWithWriteXS(structPtr any, xsList []string) ([]string, error) {
+	structValue := reflect.ValueOf(structPtr)
+
+	if structValue.Kind() != reflect.Ptr || structValue.Elem().Kind() != reflect.Struct {
+		return nil, ErrInvalidStructPointer
+	}
+
+	structType := structValue.Elem().Type()
+	numFields := structType.NumField()
+
+	fieldNames := make([]string, 0)
+	for i := 0; i < numFields; i++ {
+		field := structType.Field(i)
+		writeXS := field.Tag.Get("writexs")
+		if isFieldAccessAllowed(xsList, writeXS) {
+			fieldNames = append(fieldNames, field.Name)
+		}
+	}
+
+	return fieldNames, nil
+}
+
+// StructToMapFieldsWithReadXS converts the specified struct pointer to a map,
+// including only the fields with read access allowed based on the provided xsList.
+// It uses reflection to iterate over the fields of the struct and collect the field
+// names and values that have read access allowed.
+//
+// If the provided `structPtr` is not a pointer to a struct, the function returns
+// an error (`ErrInvalidStructPointer`).
+func StructToMapFieldsWithReadXS(structPtr any, xsList []string) (map[string]any, error) {
+	structValue := reflect.ValueOf(structPtr)
+
+	if structValue.Kind() != reflect.Ptr || structValue.Elem().Kind() != reflect.Struct {
+		return nil, ErrInvalidStructPointer
+	}
+
+	structValue = structValue.Elem()
+	structType := structValue.Type()
+	numFields := structType.NumField()
+
+	fieldMap := make(map[string]any)
+	for i := 0; i < numFields; i++ {
+		field := structType.Field(i)
+		readXS := field.Tag.Get("readxs")
+		if isFieldAccessAllowed(xsList, readXS) {
+			fieldMap[field.Name] = structValue.Field(i).Interface()
+		}
+	}
+
+	return fieldMap, nil
+}
+
+// StructToMapFieldsWithWriteXS converts the specified struct pointer to a map,
+// including only the fields with write access allowed based on the provided xsList.
+// It uses reflection to iterate over the fields of the struct and collect the field
+// names and values that have write access allowed.
+//
+// If the provided `structPtr` is not a pointer to a struct, the function returns
+// an error (`ErrInvalidStructPointer`).
+func StructToMapFieldsWithWriteXS(structPtr any, xsList []string) (map[string]any, error) {
+	structValue := reflect.ValueOf(structPtr)
+
+	if structValue.Kind() != reflect.Ptr || structValue.Elem().Kind() != reflect.Struct {
+		return nil, ErrInvalidStructPointer
+	}
+
+	structValue = structValue.Elem()
+	structType := structValue.Type()
+	numFields := structType.NumField()
+
+	fieldMap := make(map[string]any)
+	for i := 0; i < numFields; i++ {
+		field := structType.Field(i)
+		writeXS := field.Tag.Get("writexs")
+		if isFieldAccessAllowed(xsList, writeXS) {
+			fieldMap[field.Name] = structValue.Field(i).Interface()
+		}
+	}
+
+	return fieldMap, nil
+}
+
+// StructToJSONFieldsWithReadXS converts the specified struct pointer to a JSON string,
+// including only the fields with read access allowed based on the provided xsList.
+// It uses reflection to iterate over the fields of the struct and collect the field
+// names and values that have read access allowed, and then marshals the resulting map
+// to a JSON string.
+//
+// If the provided `structPtr` is not a pointer to a struct, the function returns
+// an error (`ErrInvalidStructPointer`).
+func StructToJSONFieldsWithReadXS(structPtr any, xsList []string) (string, error) {
+	fieldMap, err := StructToMapFieldsWithReadXS(structPtr, xsList)
+	if err != nil {
+		return "", err
+	}
+
+	jsonBytes, err := json.Marshal(fieldMap)
+	if err != nil {
+		return "", err
+	}
+
+	return string(jsonBytes), nil
+}
+
+// StructToJSONFieldsWithWriteXS converts the specified struct pointer to a JSON string,
+// including only the fields with write access allowed based on the provided xsList.
+// It uses reflection to iterate over the fields of the struct and collect the field
+// names and values that have write access allowed, and then marshals the resulting map
+// to a JSON string.
+//
+// If the provided `structPtr` is not a pointer to a struct, the function returns
+// an error (`ErrInvalidStructPointer`).
+func StructToJSONFieldsWithWriteXS(structPtr any, xsList []string) (string, error) {
+	fieldMap, err := StructToMapFieldsWithWriteXS(structPtr, xsList)
+	if err != nil {
+		return "", err
+	}
+
+	jsonBytes, err := json.Marshal(fieldMap)
+	if err != nil {
+		return "", err
+	}
+
+	return string(jsonBytes), nil
+}
+
 // StructToMapFields takes a pointer to a struct and a slice of field names,
 // and returns a map of the struct fields filtered to the specified field names.
 //

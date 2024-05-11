@@ -602,3 +602,177 @@ func TestStructToMap(t *testing.T) {
 		})
 	}
 }
+
+func TestGetFieldNames(t *testing.T) {
+	type MyStruct struct {
+		Field1 string
+		Field2 int
+		Field3 bool
+	}
+
+	s := &MyStruct{
+		Field1: "value1",
+		Field2: 42,
+		Field3: true,
+	}
+
+	fieldNames, err := GetFieldNames(s)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	expected := []string{"Field1", "Field2", "Field3"}
+	if !reflect.DeepEqual(fieldNames, expected) {
+		t.Errorf("Expected field names: %v, got: %v", expected, fieldNames)
+	}
+}
+
+func TestGetFieldNamesWithReadXS(t *testing.T) {
+	type MyStruct struct {
+		Field1 string `readxs:"admin,user"`
+		Field2 int    `readxs:"admin"`
+		Field3 bool   `readxs:"user"`
+	}
+
+	s := &MyStruct{
+		Field1: "value1",
+		Field2: 42,
+		Field3: true,
+	}
+
+	fieldNames, err := GetFieldNamesWithReadXS(s, []string{"user"})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	expected := []string{"Field1", "Field3"}
+	if !reflect.DeepEqual(fieldNames, expected) {
+		t.Errorf("Expected field names: %v, got: %v", expected, fieldNames)
+	}
+}
+
+func TestGetFieldNamesWithWriteXS(t *testing.T) {
+	type MyStruct struct {
+		Field1 string `writexs:"admin,user"`
+		Field2 int    `writexs:"admin"`
+		Field3 bool   `writexs:"user"`
+	}
+
+	s := &MyStruct{
+		Field1: "value1",
+		Field2: 42,
+		Field3: true,
+	}
+
+	fieldNames, err := GetFieldNamesWithWriteXS(s, []string{"admin"})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	expected := []string{"Field1", "Field2"}
+	if !reflect.DeepEqual(fieldNames, expected) {
+		t.Errorf("Expected field names: %v, got: %v", expected, fieldNames)
+	}
+}
+
+func TestStructToMapFieldsWithReadXS(t *testing.T) {
+	type MyStruct struct {
+		Field1 string `readxs:"admin,user"`
+		Field2 int    `readxs:"admin"`
+		Field3 bool   `readxs:"user"`
+	}
+
+	s := &MyStruct{
+		Field1: "value1",
+		Field2: 42,
+		Field3: true,
+	}
+
+	fieldMap, err := StructToMapFieldsWithReadXS(s, []string{"user"})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	expected := map[string]any{
+		"Field1": "value1",
+		"Field3": true,
+	}
+	if !reflect.DeepEqual(fieldMap, expected) {
+		t.Errorf("Expected field map: %v, got: %v", expected, fieldMap)
+	}
+}
+
+func TestStructToMapFieldsWithWriteXS(t *testing.T) {
+	type MyStruct struct {
+		Field1 string `writexs:"admin,user"`
+		Field2 int    `writexs:"admin"`
+		Field3 bool   `writexs:"user"`
+	}
+
+	s := &MyStruct{
+		Field1: "value1",
+		Field2: 42,
+		Field3: true,
+	}
+
+	fieldMap, err := StructToMapFieldsWithWriteXS(s, []string{"admin"})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	expected := map[string]any{
+		"Field1": "value1",
+		"Field2": 42,
+	}
+	if !reflect.DeepEqual(fieldMap, expected) {
+		t.Errorf("Expected field map: %v, got: %v", expected, fieldMap)
+	}
+}
+
+func TestStructToJSONFieldsWithReadXS(t *testing.T) {
+	type MyStruct struct {
+		Field1 string `readxs:"admin,user"`
+		Field2 int    `readxs:"admin"`
+		Field3 bool   `readxs:"user"`
+	}
+
+	s := &MyStruct{
+		Field1: "value1",
+		Field2: 42,
+		Field3: true,
+	}
+
+	jsonStr, err := StructToJSONFieldsWithReadXS(s, []string{"user"})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	expected := `{"Field1":"value1","Field3":true}`
+	if jsonStr != expected {
+		t.Errorf("Expected JSON string: %s, got: %s", expected, jsonStr)
+	}
+}
+
+func TestStructToJSONFieldsWithWriteXS(t *testing.T) {
+	type MyStruct struct {
+		Field1 string `writexs:"admin,user"`
+		Field2 int    `writexs:"admin"`
+		Field3 bool   `writexs:"user"`
+	}
+
+	s := &MyStruct{
+		Field1: "value1",
+		Field2: 42,
+		Field3: true,
+	}
+
+	jsonStr, err := StructToJSONFieldsWithWriteXS(s, []string{"admin"})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	expected := `{"Field1":"value1","Field2":42}`
+	if jsonStr != expected {
+		t.Errorf("Expected JSON string: %s, got: %s", expected, jsonStr)
+	}
+}
