@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const Version = "1.1.0"
+const Version = "1.3.0"
 
 var (
 	ErrTargetStructMustBePointer   = errors.New("targetStruct must be a pointer to a struct")
@@ -114,6 +114,85 @@ func MergeStructUpdateTo(targetStruct any, updateStruct any, xsList []string) (a
 	}
 
 	return mergedStruct.Addr().Interface(), nil
+}
+
+// MergeMapStringFieldsToStruct merges the fields from a map[string]any into a target struct.
+// The function takes a pointer to the target struct, a map[string]any representing the fields to update,
+// and a list of allowed field names (xsList) for merging.
+//
+// The function iterates over the fields of the target struct and checks if there are corresponding entries
+// in the updateMap. If a matching entry is found and the field name is allowed based on the xsList,
+// the value from the updateMap is assigned to the struct field.
+//
+// The function handles the following cases:
+//   - If a field in the target struct is not found in the updateMap, it remains unchanged.
+//   - If a field in the updateMap is not found in the target struct, it is ignored.
+//   - If the type of a field in the updateMap does not match the type of the corresponding struct field,
+//     the function attempts to convert the value to the appropriate type.
+//   - If the struct field is a pointer and the updateMap value is not a pointer,
+//     the function creates a new pointer with the updateMap value.
+//   - If the struct field is not a pointer and the updateMap value is a pointer,
+//     the function dereferences the updateMap value.
+//   - If a field is not allowed based on the xsList, it is skipped.
+//
+// The function returns the updated struct and an error if any of the following conditions are met:
+// - The target struct is not a pointer to a struct.
+// - An error occurs during the merging process.
+func MergeMapStringFieldsToStruct(targetStruct any, updateMap map[string]any, xsList []string) (any, error) {
+	targetValue := reflect.ValueOf(targetStruct)
+
+	if targetValue.Kind() != reflect.Ptr || targetValue.Elem().Kind() != reflect.Struct {
+		return targetStruct, ErrTargetStructMustBePointer
+	}
+
+	targetValue = targetValue.Elem()
+	targetType := targetValue.Type()
+
+	for i := 0; i < targetType.NumField(); i++ {
+		field := targetType.Field(i)
+		fieldName := field.Name
+		fieldValue := targetValue.Field(i)
+
+		updateValue, ok := updateMap[fieldName]
+		if !ok {
+			continue
+		}
+
+		writexs := field.Tag.Get("xswrite")
+		if !isFieldAccessAllowed(xsList, writexs) {
+			continue
+		}
+
+		updateValueType := reflect.TypeOf(updateValue)
+
+		if fieldValue.Kind() == reflect.Ptr {
+			if updateValueType.Kind() != reflect.Ptr {
+				if updateValueType.ConvertibleTo(fieldValue.Type().Elem()) {
+					// Target field is a pointer, but the updateMap value is not a pointer
+					convertedValue := reflect.ValueOf(updateValue).Convert(fieldValue.Type().Elem())
+					fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
+					fieldValue.Elem().Set(convertedValue)
+				} else {
+					return targetStruct, fmt.Errorf("%w: %s, expected %v, got %v", ErrFieldTypeMismatch, fieldName, fieldValue.Type(), updateValueType)
+				}
+			} else {
+				fieldValue.Set(reflect.ValueOf(updateValue))
+			}
+		} else {
+			if updateValueType.AssignableTo(fieldValue.Type()) {
+				fieldValue.Set(reflect.ValueOf(updateValue))
+			} else if updateValueType.Kind() == reflect.Ptr && updateValueType.Elem().AssignableTo(fieldValue.Type()) {
+				// Target field is not a pointer, but the updateMap value is a pointer
+				fieldValue.Set(reflect.ValueOf(updateValue).Elem())
+			} else if updateValueType.ConvertibleTo(fieldValue.Type()) {
+				fieldValue.Set(reflect.ValueOf(updateValue).Convert(fieldValue.Type()))
+			} else {
+				return targetStruct, fmt.Errorf("%w: %s, expected %v, got %v", ErrFieldTypeMismatch, fieldName, fieldValue.Type(), updateValueType)
+			}
+		}
+	}
+
+	return targetStruct, nil
 }
 
 // FilterStructTo filters the fields of a source struct and assigns the allowed fields to a destination struct.

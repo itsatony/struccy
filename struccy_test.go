@@ -776,3 +776,113 @@ func TestStructToJSONFieldsWithWriteXS(t *testing.T) {
 		t.Errorf("Expected JSON string: %s, got: %s", expected, jsonStr)
 	}
 }
+
+func TestMergeMapStringFieldsToStruct(t *testing.T) {
+	type TestStruct struct {
+		Field1 string `xswrite:"admin,user"`
+		Field2 int    `xswrite:"admin"`
+		Field3 *bool  `xswrite:"user"`
+	}
+
+	tests := []struct {
+		name         string
+		targetStruct any
+		updateMap    map[string]any
+		xsList       []string
+		expected     TestStruct
+		err          error
+	}{
+		{
+			name: "Merge fields with matching types",
+			targetStruct: &TestStruct{
+				Field1: "initial1",
+				Field2: 10,
+				Field3: nil,
+			},
+			updateMap: map[string]any{
+				"Field1": "updated1",
+				"Field2": 20,
+				"Field3": true,
+			},
+			xsList: []string{"admin", "user"},
+			expected: TestStruct{
+				Field1: "updated1",
+				Field2: 20,
+				Field3: func() *bool { b := true; return &b }(),
+			},
+			err: nil,
+		},
+		{
+			name: "Merge fields with type conversion",
+			targetStruct: &TestStruct{
+				Field1: "initial1",
+				Field2: 10,
+				Field3: nil,
+			},
+			updateMap: map[string]any{
+				"Field1": "updated1",
+				"Field2": int8(20),
+				"Field3": func() *bool { b := true; return &b }(),
+			},
+			xsList: []string{"admin", "user"},
+			expected: TestStruct{
+				Field1: "updated1",
+				Field2: 20,
+				Field3: func() *bool { b := true; return &b }(),
+			},
+			err: nil,
+		},
+		{
+			name: "Merge fields with mismatched types",
+			targetStruct: &TestStruct{
+				Field1: "initial1",
+				Field2: 10,
+				Field3: nil,
+			},
+			updateMap: map[string]any{
+				"Field1": 123,
+				"Field2": "invalid",
+				"Field3": true,
+			},
+			xsList: []string{"admin", "user"},
+			expected: TestStruct{
+				Field1: "initial1",
+				Field2: 10,
+				Field3: nil,
+			},
+			err: ErrFieldTypeMismatch,
+		},
+		{
+			name: "Merge fields with non-pointer target struct",
+			targetStruct: TestStruct{
+				Field1: "initial1",
+				Field2: 10,
+				Field3: nil,
+			},
+			updateMap: map[string]any{
+				"Field1": "updated1",
+				"Field2": 20,
+				"Field3": true,
+			},
+			xsList: []string{"admin", "user"},
+			expected: TestStruct{
+				Field1: "initial1",
+				Field2: 10,
+				Field3: nil,
+			},
+			err: ErrTargetStructMustBePointer,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := MergeMapStringFieldsToStruct(test.targetStruct, test.updateMap, test.xsList)
+			if !errors.Is(err, test.err) {
+				t.Errorf("Expected error: %v, got: %v", test.err, err)
+			}
+			if !reflect.DeepEqual(result, test.targetStruct) {
+				t.Errorf("Expected result: %+v, got: %+v", test.targetStruct, result)
+			}
+		})
+	}
+}

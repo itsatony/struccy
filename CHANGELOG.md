@@ -4,6 +4,14 @@ All notable changes to the struccy package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2023-06-15
+
+[1.3.0]: https://github.com/itsatony/struccy/releases/tag/v1.3.0
+
+### Added 1.3.0
+
+- Introduced a new function `MergeMapStringFieldsToStruct` to merge map fields to a struct based xsList tags `xswrite`.
+
 ## [1.2.0] - 2023-06-15
 
 [1.2.0]: https://github.com/itsatony/struccy/releases/tag/v1.2.0

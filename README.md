@@ -344,6 +344,67 @@ fmt.Println("Field map:", fieldMap)
 Field map: map[Field1:Hello Field2:42 Field3:<nil>]
 ```
 
+### MergeMapStringFieldsToStruct
+
+The `MergeMapStringFieldsToStruct` function merges the fields from a `map[string]any` into a target struct. It allows updating the struct fields based on the corresponding entries in the map, while respecting the specified access rules (xsList).
+
+```go
+func MergeMapStringFieldsToStruct(targetStruct any, updateMap map[string]any, xsList []string) (any, error)
+```
+
+#### Parameters
+
+- `targetStruct`: A pointer to the target struct to be updated.
+- `updateMap`: A `map[string]any` containing the fields to update.
+- `xsList`: A slice of strings representing the allowed field names for merging.
+
+#### Return Value
+
+- The updated struct.
+- An error if the target struct is not a pointer to a struct or if an error occurs during the merging process.
+
+#### Example
+
+```go
+type MyStruct struct {
+ Field1 string `xswrite:"admin,user"`
+ Field2 int    `xswrite:"admin"`
+ Field3 *bool  `xswrite:"user"`
+}
+
+targetStruct := &MyStruct{
+ Field1: "initial1",
+ Field2: 10,
+ Field3: nil,
+}
+
+updateMap := map[string]any{
+ "Field1": "updated1",
+ "Field2": 20,
+ "Field3": true,
+}
+
+xsList := []string{"admin", "user"}
+
+result, err := MergeMapStringFieldsToStruct(targetStruct, updateMap, xsList)
+if err != nil {
+ log.Fatal(err)
+}
+
+fmt.Printf("Updated struct: %+v\n", result)
+// Output: Updated struct: &{Field1:updated1 Field2:20 Field3:0xc00000e0c8}
+```
+
+In this example, we have a `MyStruct` with three fields: `Field1`, `Field2`, and `Field3`. We create an instance of `MyStruct` called `targetStruct` with some initial values.
+
+We also have an `updateMap` containing the fields we want to update, along with their new values. The `xsList` specifies the allowed field names for merging.
+
+We call the `MergeMapStringFieldsToStruct` function, passing the `targetStruct`, `updateMap`, and `xsList`. The function merges the fields from the `updateMap` into the `targetStruct` based on the matching field names and the access rules defined in the `xsList`.
+
+Finally, we print the updated struct, which reflects the changes made by merging the fields from the `updateMap`.
+
+The `MergeMapStringFieldsToStruct` function provides a convenient way to update struct fields using a `map[string]any`, while respecting the specified access rules. It simplifies the process of merging fields from a map into a struct, handling type conversions and field access control based on the `xswrite` tags.
+
 ### Convenience Functions
 
 The `struccy` package provides a set of convenience functions to work with struct fields and their read/write access rules (xsList). These functions allow you to retrieve field names, convert structs to maps, and convert structs to JSON strings based on specified access rules.
