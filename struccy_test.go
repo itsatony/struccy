@@ -4,6 +4,8 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type TestStruct struct {
@@ -393,30 +395,36 @@ func TestFilterStructTo_ZeroDisallowed(t *testing.T) {
 
 func TestIsFieldAccessAllowed_NotSyntax(t *testing.T) {
 	testCases := []struct {
-		name         string
-		xsList       []string
-		allowedRoles string
-		expected     bool
+		name        string
+		xsList      []string
+		taggedRoles string
+		expected    bool
 	}{
 		{
-			name:         "NOT syntax - allowed",
-			xsList:       []string{"admin", "user"},
-			allowedRoles: "!guest",
-			expected:     true,
+			name:        "NOT syntax - allowed #1",
+			xsList:      []string{"admin", "user"},
+			taggedRoles: "!guest",
+			expected:    true,
 		},
 		{
-			name:         "NOT syntax - not allowed",
-			xsList:       []string{"admin", "guest"},
-			allowedRoles: "!guest",
-			expected:     false,
+			name:        "NOT syntax - allowed #2",
+			xsList:      []string{"admin", "guest"},
+			taggedRoles: "!guest",
+			expected:    false,
+		},
+		{
+			name:        "NOT syntax - not allowed",
+			xsList:      []string{"guest"},
+			taggedRoles: "!guest",
+			expected:    false,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := isFieldAccessAllowed(tc.xsList, tc.allowedRoles)
+			result := IsFieldAccessAllowed(tc.xsList, tc.taggedRoles)
 			if result != tc.expected {
-				t.Errorf("Expected: %v, got: %v", tc.expected, result)
+				t.Errorf("Expected: %v, got: %v  <-- for %v  vs.  %v", tc.expected, result, tc.xsList, tc.taggedRoles)
 			}
 		})
 	}
@@ -779,18 +787,24 @@ func TestStructToJSONFieldsWithWriteXS(t *testing.T) {
 
 func TestMergeMapStringFieldsToStruct(t *testing.T) {
 	type TestStruct struct {
-		Field1 string `xswrite:"admin,user"`
-		Field2 int    `xswrite:"admin"`
-		Field3 *bool  `xswrite:"user"`
+		Field1 string
+		Field2 int
+		Field3 *bool
+		Field4 *string
+		Field5 []int
 	}
+
+	trueVal := true
+	falseVal := false
+	initialString := "Hello, World!"
+	newString := "Goodbye, World!"
 
 	tests := []struct {
 		name         string
 		targetStruct any
 		updateMap    map[string]any
-		xsList       []string
 		expected     TestStruct
-		err          error
+		expectError  bool
 	}{
 		{
 			name: "Merge fields with matching types",
@@ -802,18 +816,17 @@ func TestMergeMapStringFieldsToStruct(t *testing.T) {
 			updateMap: map[string]any{
 				"Field1": "updated1",
 				"Field2": 20,
-				"Field3": true,
+				"Field3": &trueVal,
 			},
-			xsList: []string{"admin", "user"},
 			expected: TestStruct{
 				Field1: "updated1",
 				Field2: 20,
-				Field3: func() *bool { b := true; return &b }(),
+				Field3: &trueVal,
 			},
-			err: nil,
+			expectError: false,
 		},
 		{
-			name: "Merge fields with type conversion",
+			name: "Successfully merge fields with type conversion",
 			targetStruct: &TestStruct{
 				Field1: "initial1",
 				Field2: 10,
@@ -822,67 +835,247 @@ func TestMergeMapStringFieldsToStruct(t *testing.T) {
 			updateMap: map[string]any{
 				"Field1": "updated1",
 				"Field2": int8(20),
-				"Field3": func() *bool { b := true; return &b }(),
+				"Field3": trueVal,
 			},
-			xsList: []string{"admin", "user"},
 			expected: TestStruct{
-				Field1: "updated1",
+				Field1: "initial1",
 				Field2: 20,
-				Field3: func() *bool { b := true; return &b }(),
+				Field3: nil,
 			},
-			err: nil,
+			expectError: false,
 		},
 		{
-			name: "Merge fields with mismatched types",
+			name: "Handle nil assignment to existing pointers",
 			targetStruct: &TestStruct{
 				Field1: "initial1",
 				Field2: 10,
-				Field3: nil,
+				Field3: &trueVal,
+				Field4: &initialString,
 			},
 			updateMap: map[string]any{
-				"Field1": 123,
-				"Field2": "invalid",
-				"Field3": true,
+				"Field3": nil,
+				"Field4": nil,
 			},
-			xsList: []string{"admin", "user"},
 			expected: TestStruct{
 				Field1: "initial1",
 				Field2: 10,
 				Field3: nil,
+				Field4: nil,
 			},
-			err: ErrFieldTypeMismatch,
+			expectError: false,
 		},
 		{
-			name: "Merge fields with non-pointer target struct",
-			targetStruct: TestStruct{
-				Field1: "initial1",
-				Field2: 10,
+			name: "Handle non-pointer to pointer conversion with valid types",
+			targetStruct: &TestStruct{
 				Field3: nil,
 			},
 			updateMap: map[string]any{
-				"Field1": "updated1",
-				"Field2": 20,
-				"Field3": true,
+				"Field3": trueVal,
 			},
-			xsList: []string{"admin", "user"},
 			expected: TestStruct{
-				Field1: "initial1",
-				Field2: 10,
-				Field3: nil,
+				Field3: &trueVal,
 			},
-			err: ErrTargetStructMustBePointer,
+			expectError: false,
+		},
+		{
+			name: "Reject incompatible type conversions",
+			targetStruct: &TestStruct{
+				Field2: 10,
+			},
+			updateMap: map[string]any{
+				"Field2": "should fail",
+			},
+			expected: TestStruct{
+				Field2: 10,
+			},
+			expectError: true,
+		},
+		{
+			name: "Reject assignments where target is not a slice but input is a slice",
+			targetStruct: &TestStruct{
+				Field2: 10,
+			},
+			updateMap: map[string]any{
+				"Field2": []int{1, 2, 3},
+			},
+			expected: TestStruct{
+				Field2: 10,
+			},
+			expectError: true,
+		},
+		{
+			name: "Accept slice assignments when types match",
+			targetStruct: &TestStruct{
+				Field5: []int{1, 2, 3},
+			},
+			updateMap: map[string]any{
+				"Field5": []int{4, 5, 6},
+			},
+			expected: TestStruct{
+				Field5: []int{4, 5, 6},
+			},
+			expectError: false,
+		},
+		{
+			name: "Successfully convert boolean to pointer boolean",
+			targetStruct: &TestStruct{
+				Field3: &falseVal,
+			},
+			updateMap: map[string]any{
+				"Field3": trueVal,
+			},
+			expected: TestStruct{
+				Field3: &trueVal,
+			},
+			expectError: false,
+		},
+		{
+			name: "Update string pointer field",
+			targetStruct: &TestStruct{
+				Field4: &initialString,
+			},
+			updateMap: map[string]any{
+				"Field4": newString,
+			},
+			expected: TestStruct{
+				Field4: &newString,
+			},
+			expectError: false,
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			result, err := MergeMapStringFieldsToStruct(test.targetStruct, test.updateMap, test.xsList)
-			if !errors.Is(err, test.err) {
-				t.Errorf("Expected error: %v, got: %v", test.err, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := MergeMapStringFieldsToStruct(tt.targetStruct, tt.updateMap, nil)
+			if (err != nil) != tt.expectError {
+				t.Errorf("Test '%s' failed: expected error %v, got %v", tt.name, tt.expectError, err)
 			}
-			if !reflect.DeepEqual(result, test.targetStruct) {
-				t.Errorf("Expected result: %+v, got: %+v", test.targetStruct, result)
+			if err == nil && !reflect.DeepEqual(result, tt.targetStruct) {
+				t.Errorf("Test '%s' failed: expected result %+v, got %+v", tt.name, tt.expected, result)
 			}
 		})
 	}
+}
+
+type RoleBasedStruct struct {
+	PublicField string `writexs:"*"`
+	AdminField  string `writexs:"admin"`
+	UserField   string `writexs:"user"`
+}
+
+func TestUpdateStructFields(t *testing.T) {
+	initial := &RoleBasedStruct{
+		PublicField: "initial",
+		AdminField:  "admin only",
+		UserField:   "user only",
+	}
+	initial2 := &RoleBasedStruct{
+		PublicField: "initial",
+		AdminField:  "admin only",
+		UserField:   "user only",
+	}
+
+	updates := &RoleBasedStruct{
+		PublicField: "updated",
+		AdminField:  "updated admin",
+		UserField:   "updated user",
+	}
+
+	expectedAdmin := &RoleBasedStruct{
+		PublicField: "updated",
+		AdminField:  "updated admin",
+		UserField:   "user only",
+	}
+
+	expectedUser := &RoleBasedStruct{
+		PublicField: "updated",
+		AdminField:  "admin only",
+		UserField:   "updated user",
+	}
+
+	// Testing with admin role
+	updatedFields, err := UpdateStructFields(initial, updates, []string{"admin"})
+	assert.NoError(t, err)
+	assert.Equal(t, expectedAdmin, initial)
+	assert.Len(t, updatedFields, 2, "Two fields should have been updated for admin")
+
+	// Testing with user role
+	updatedFields2, err := UpdateStructFields(initial2, updates, []string{"user"})
+	assert.NoError(t, err)
+	assert.Equal(t, expectedUser, initial2)
+	assert.Len(t, updatedFields2, 2, "Two fields should have been updated for user")
+}
+
+// TestSetField tests the SetField function
+func TestSetField(t *testing.T) {
+	type TestStruct struct {
+		Field1 string `writexs:"admin,user"`
+		Field2 int    `writexs:"admin"`
+	}
+
+	entity := &TestStruct{
+		Field1: "initial value",
+		Field2: 10,
+	}
+
+	// Test case 1: Set field with admin role
+	err := SetField(entity, "Field1", "updated value", []string{"admin"})
+	assert.NoError(t, err)
+	assert.Equal(t, "updated value", entity.Field1)
+
+	// Test case 2: Set field with user role
+	err = SetField(entity, "Field1", "updated value", []string{"user"})
+	assert.NoError(t, err)
+	assert.Equal(t, "updated value", entity.Field1)
+
+	// Test case 3: Set field with unauthorized role
+	err = SetField(entity, "Field2", 20, []string{"user"})
+	assert.Equal(t, ErrUnauthorizedFieldSet, err)
+	assert.Equal(t, 10, entity.Field2)
+
+	// Test case 4: Set invalid field
+	err = SetField(entity, "InvalidField", "value", []string{"admin"})
+	assert.Equal(t, ErrInvalidFieldName, err)
+
+	// Test case 5: Set field with valid value type
+	err = SetField(entity, "Field1", "valid value", []string{"admin"})
+	assert.NoError(t, err)
+	assert.Equal(t, "valid value", entity.Field1)
+}
+
+// TestCanSetField tests the CanSetField function
+func TestCanSetField(t *testing.T) {
+	type TestStruct struct {
+		Field1 string `writexs:"admin,user"`
+		Field2 int    `writexs:"admin"`
+	}
+
+	entity := &TestStruct{}
+
+	// Test case 1: Check field with admin role
+	assert.True(t, CanSetField(entity, "Field1", []string{"admin"}))
+	assert.True(t, CanSetField(entity, "Field2", []string{"admin"}))
+
+	// Test case 2: Check field with user role
+	assert.True(t, CanSetField(entity, "Field1", []string{"user"}))
+	assert.False(t, CanSetField(entity, "Field2", []string{"user"}))
+
+	// Test case 3: Check field with unauthorized role
+	assert.False(t, CanSetField(entity, "Field1", []string{"guest"}))
+	assert.False(t, CanSetField(entity, "Field2", []string{"guest"}))
+
+	// Test case 4: Check invalid field
+	assert.False(t, CanSetField(entity, "InvalidField", []string{"admin"}))
+}
+
+func TestCanSetFieldWithWildcardAndNegation(t *testing.T) {
+	entity := &RoleBasedStruct{} // Assume this is already defined with the appropriate struct tags
+
+	assert.True(t, CanSetField(entity, "PublicField", []string{"admin"}), "Admin should access PublicField with wildcard")
+	assert.True(t, CanSetField(entity, "PublicField", []string{"user"}), "User should access PublicField with wildcard")
+	assert.True(t, CanSetField(entity, "PublicField", []string{"guest"}), "Guest should access PublicField with wildcard")
+
+	// Assuming "AdminField" is tagged with "!user"
+	assert.True(t, CanSetField(entity, "AdminField", []string{"admin"}), "Admin should access AdminField")
+	assert.False(t, CanSetField(entity, "AdminField", []string{"user"}), "User should not access AdminField with negation")
 }

@@ -5,11 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"slices"
 	"strings"
 )
 
-const Version = "1.3.0"
+const Version = "1.4.0"
+
+const (
+	tagNameReadXS  = "readxs"
+	tagNameWriteXS = "writexs"
+)
 
 var (
 	ErrTargetStructMustBePointer   = errors.New("targetStruct must be a pointer to a struct")
@@ -20,7 +24,7 @@ var (
 	ErrFieldNotFound               = errors.New("field not found")
 	ErrUnsupportedFieldType        = errors.New("unsupported field type")
 	ErrInvalidAccessRole           = errors.New("invalid access role")
-	ErrFieldTypeMismatch           = errors.New("fiel type mismatch")
+	ErrFieldTypeMismatch           = errors.New("field type mismatch")
 	ErrInvalidStructPointer        = errors.New("invalid struct pointer")
 	ErrUnexportedField             = errors.New("unexported field")
 	ErrJSONMarshalFailed           = errors.New("JSON marshal failed")
@@ -29,6 +33,11 @@ var (
 	ErrDifferentStructType         = errors.New("source and destination must be the same struct type")
 	ErrFieldMismatch               = errors.New("source and destination structs have different number of fields")
 	ErrZeroValueDisallowed         = errors.New("zero value is not allowed for this field")
+	ErrInvalidFieldName            = errors.New("field name not found in source map")
+	ErrTypeMismatch                = errors.New("type mismatch between struct and source map field")
+	ErrMustBeStructPointer         = errors.New("reference must be a pointer to a struct")
+	ErrUnauthorizedFieldSet        = errors.New("unauthorized field set")
+	ErrInvalidFieldValue           = errors.New("invalid field value")
 )
 
 // MergeStructUpdateTo merges the fields of a source struct into a destination struct.
@@ -81,8 +90,8 @@ func MergeStructUpdateTo(targetStruct any, updateStruct any, xsList []string) (a
 			return nil, fmt.Errorf("%w: %s", ErrFieldNotFound, field.Name)
 		}
 
-		writexs := field.Tag.Get("writexs")
-		if !isFieldAccessAllowed(xsList, writexs) {
+		writexs := field.Tag.Get(tagNameWriteXS)
+		if !IsFieldAccessAllowed(xsList, writexs) {
 			continue
 		}
 
@@ -138,61 +147,89 @@ func MergeStructUpdateTo(targetStruct any, updateStruct any, xsList []string) (a
 // The function returns the updated struct and an error if any of the following conditions are met:
 // - The target struct is not a pointer to a struct.
 // - An error occurs during the merging process.
+
+// MergeMapStringFieldsToStruct merges the fields from a map[string]any into a target struct.
 func MergeMapStringFieldsToStruct(targetStruct any, updateMap map[string]any, xsList []string) (any, error) {
 	targetValue := reflect.ValueOf(targetStruct)
-
 	if targetValue.Kind() != reflect.Ptr || targetValue.Elem().Kind() != reflect.Struct {
-		return targetStruct, ErrTargetStructMustBePointer
+		return nil, ErrTargetStructMustBePointer
 	}
 
-	targetValue = targetValue.Elem()
-	targetType := targetValue.Type()
-
-	for i := 0; i < targetType.NumField(); i++ {
-		field := targetType.Field(i)
-		fieldName := field.Name
-		fieldValue := targetValue.Field(i)
-
-		updateValue, ok := updateMap[fieldName]
-		if !ok {
-			continue
+	structElem := targetValue.Elem()
+	for key, updateValue := range updateMap {
+		targetField := structElem.FieldByName(key)
+		if !targetField.IsValid() {
+			continue // Field not found in the struct
+		}
+		if !targetField.CanSet() {
+			continue // Cannot set unexported fields
 		}
 
-		writexs := field.Tag.Get("xswrite")
-		if !isFieldAccessAllowed(xsList, writexs) {
-			continue
-		}
-
-		updateValueType := reflect.TypeOf(updateValue)
-
-		if fieldValue.Kind() == reflect.Ptr {
-			if updateValueType.Kind() != reflect.Ptr {
-				if updateValueType.ConvertibleTo(fieldValue.Type().Elem()) {
-					// Target field is a pointer, but the updateMap value is not a pointer
-					convertedValue := reflect.ValueOf(updateValue).Convert(fieldValue.Type().Elem())
-					fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
-					fieldValue.Elem().Set(convertedValue)
-				} else {
-					return targetStruct, fmt.Errorf("%w: %s, expected %v, got %v", ErrFieldTypeMismatch, fieldName, fieldValue.Type(), updateValueType)
-				}
-			} else {
-				fieldValue.Set(reflect.ValueOf(updateValue))
-			}
-		} else {
-			if updateValueType.AssignableTo(fieldValue.Type()) {
-				fieldValue.Set(reflect.ValueOf(updateValue))
-			} else if updateValueType.Kind() == reflect.Ptr && updateValueType.Elem().AssignableTo(fieldValue.Type()) {
-				// Target field is not a pointer, but the updateMap value is a pointer
-				fieldValue.Set(reflect.ValueOf(updateValue).Elem())
-			} else if updateValueType.ConvertibleTo(fieldValue.Type()) {
-				fieldValue.Set(reflect.ValueOf(updateValue).Convert(fieldValue.Type()))
-			} else {
-				return targetStruct, fmt.Errorf("%w: %s, expected %v, got %v", ErrFieldTypeMismatch, fieldName, fieldValue.Type(), updateValueType)
-			}
+		updateValueReflect := reflect.ValueOf(updateValue)
+		if err := assignValueToField(targetField, updateValueReflect); err != nil {
+			return nil, fmt.Errorf("error assigning field '%s': %w", key, err)
 		}
 	}
 
 	return targetStruct, nil
+}
+
+// This function tries to assign values to struct fields while handling type conversions.
+func assignValueToField(targetField, updateValueReflect reflect.Value) error {
+	// First, check if the update value is valid (not a zero Value)
+	if !updateValueReflect.IsValid() {
+		if targetField.Kind() == reflect.Ptr {
+			// If it's a pointer in the struct, set it to nil
+			targetField.Set(reflect.Zero(targetField.Type()))
+			return nil
+		} else {
+			// If it's not a pointer and we're trying to assign nil, that's an error
+			return fmt.Errorf("cannot assign nil to non-pointer type %s", targetField.Type())
+		}
+	}
+
+	// Handle if the update value is a pointer and the target field is not, or vice versa.
+	if updateValueReflect.Kind() == reflect.Ptr {
+		updateValueReflect = updateValueReflect.Elem() // Dereference pointers to their base value.
+	}
+
+	// Handle pointer fields in the struct.
+	if targetField.Kind() == reflect.Ptr {
+		// Handle initializing nil pointer fields if needed.
+		if targetField.IsNil() && targetField.CanSet() {
+			targetField.Set(reflect.New(targetField.Type().Elem()))
+		}
+		if updateValueReflect.Type().AssignableTo(targetField.Type().Elem()) {
+			targetField.Elem().Set(updateValueReflect) // Assign compatible types directly.
+		} else if checkTypeConvertible(updateValueReflect, targetField.Type().Elem()) {
+			convertedValue := updateValueReflect.Convert(targetField.Type().Elem())
+			targetField.Elem().Set(convertedValue) // Convert and assign if possible.
+		} else {
+			return ErrFieldTypeMismatch
+		}
+	} else {
+		if updateValueReflect.Type().AssignableTo(targetField.Type()) {
+			targetField.Set(updateValueReflect) // Direct assignment if types are compatible.
+		} else if checkTypeConvertible(updateValueReflect, targetField.Type()) {
+			convertedValue := updateValueReflect.Convert(targetField.Type())
+			targetField.Set(convertedValue) // Perform conversion and assignment.
+		} else {
+			return ErrFieldTypeMismatch
+		}
+	}
+
+	return nil
+}
+
+// Helper function to check if types are convertible.
+func checkTypeConvertible(value reflect.Value, targetType reflect.Type) bool {
+	// Implement rules for conversion here.
+	// Example: int8 to int might need custom handling if you want to allow it.
+	valueType := value.Type()
+	if valueType.Kind() == reflect.Int8 && targetType.Kind() == reflect.Int {
+		return true // Allow conversion from int8 to int.
+	}
+	return valueType.ConvertibleTo(targetType)
 }
 
 // FilterStructTo filters the fields of a source struct and assigns the allowed fields to a destination struct.
@@ -280,8 +317,8 @@ func FilterStructTo(sourceStruct any, filteredStruct any, xsList []string, zeroD
 				return fmt.Errorf("%w: %s, expected %v, got %v", ErrFieldTypeMismatch, field.Name, filteredField.Type(), sourceField.Type())
 			}
 		} else {
-			readxs := field.Tag.Get("readxs")
-			if !isFieldAccessAllowed(xsList, readxs) {
+			readxs := field.Tag.Get(tagNameReadXS)
+			if !IsFieldAccessAllowed(xsList, readxs) {
 				if zeroDisallowed {
 					filteredField.Set(reflect.Zero(filteredField.Type()))
 				}
@@ -301,6 +338,22 @@ func FilterStructTo(sourceStruct any, filteredStruct any, xsList []string, zeroD
 	}
 
 	return nil
+}
+
+// FilterMapFieldsToStruct filters the fields of a source map and assigns the allowed fields to a destination struct.
+// It takes a map of string field names and values and a list of allowed field names (xsList).
+// The function iterates over the fields of the destination struct and looks for corresponding entries in the source map.
+// If a matching entry is found and the field name is allowed based on the xsList, the value from the source map is assigned
+func FilterMapFieldsByRole(source map[string]any, xsList []string) (filtered map[string]any, err error) {
+	filtered = make(map[string]any)
+	allowedFieldNames, err := GetFieldNamesWithWriteXS(source, xsList)
+	if err != nil {
+		return nil, err
+	}
+	for _, fieldName := range allowedFieldNames {
+		filtered[fieldName] = source[fieldName]
+	}
+	return filtered, nil
 }
 
 // StructToJSONFields takes a pointer to a struct and a slice of field names,
@@ -385,8 +438,8 @@ func GetFieldNamesWithReadXS(structPtr any, xsList []string) ([]string, error) {
 	fieldNames := make([]string, 0)
 	for i := 0; i < numFields; i++ {
 		field := structType.Field(i)
-		readXS := field.Tag.Get("readxs")
-		if isFieldAccessAllowed(xsList, readXS) {
+		readXS := field.Tag.Get(tagNameReadXS)
+		if IsFieldAccessAllowed(xsList, readXS) {
 			fieldNames = append(fieldNames, field.Name)
 		}
 	}
@@ -414,8 +467,8 @@ func GetFieldNamesWithWriteXS(structPtr any, xsList []string) ([]string, error) 
 	fieldNames := make([]string, 0)
 	for i := 0; i < numFields; i++ {
 		field := structType.Field(i)
-		writeXS := field.Tag.Get("writexs")
-		if isFieldAccessAllowed(xsList, writeXS) {
+		writeXS := field.Tag.Get(tagNameWriteXS)
+		if IsFieldAccessAllowed(xsList, writeXS) {
 			fieldNames = append(fieldNames, field.Name)
 		}
 	}
@@ -444,8 +497,8 @@ func StructToMapFieldsWithReadXS(structPtr any, xsList []string) (map[string]any
 	fieldMap := make(map[string]any)
 	for i := 0; i < numFields; i++ {
 		field := structType.Field(i)
-		readXS := field.Tag.Get("readxs")
-		if isFieldAccessAllowed(xsList, readXS) {
+		readXS := field.Tag.Get(tagNameReadXS)
+		if IsFieldAccessAllowed(xsList, readXS) {
 			fieldMap[field.Name] = structValue.Field(i).Interface()
 		}
 	}
@@ -474,8 +527,8 @@ func StructToMapFieldsWithWriteXS(structPtr any, xsList []string) (map[string]an
 	fieldMap := make(map[string]any)
 	for i := 0; i < numFields; i++ {
 		field := structType.Field(i)
-		writeXS := field.Tag.Get("writexs")
-		if isFieldAccessAllowed(xsList, writeXS) {
+		writeXS := field.Tag.Get(tagNameWriteXS)
+		if IsFieldAccessAllowed(xsList, writeXS) {
 			fieldMap[field.Name] = structValue.Field(i).Interface()
 		}
 	}
@@ -592,23 +645,306 @@ func StructToMap(structPtr any) (map[string]any, error) {
 	return fieldMap, nil
 }
 
-// helpers
-
-func isFieldAccessAllowed(xsList []string, allowedRoles string) bool {
-	if allowedRoles == "*" {
+func IsFieldAccessAllowed(roles []string, tagValue string) bool {
+	// Handle the wildcard which grants access to any role.
+	if tagValue == "*" {
 		return true
 	}
+	// fmt.Printf("Roles: %v\n", roles)
+	// Split the permissions from the tag into individual roles.
+	taggedRoles := strings.Split(tagValue, ",")
 
-	roles := strings.Split(allowedRoles, ",")
+	finallyAllowed := false
+
+	// Check each role against the allowed roles from the tag.
 	for _, role := range roles {
-		if strings.HasPrefix(role, "!") {
-			if !slices.Contains(xsList, strings.TrimPrefix(role, "!")) {
-				return true
+		for _, taggedRole := range taggedRoles {
+			// Direct match grants access.
+			if role == taggedRole {
+				finallyAllowed = true
+				continue
 			}
-		} else if slices.Contains(xsList, role) {
-			return true
+
+			// Handle negation, which explicitly denies access if the role matches.
+			if strings.HasPrefix(taggedRole, "!") {
+				// once a negation is mentioned, we assume that the default is to allow access if the denied role is not found
+				finallyAllowed = true
+				// If a role is denied, access is denied.
+				if role == strings.TrimPrefix(taggedRole, "!") {
+					return false
+				}
+			}
 		}
 	}
 
-	return false
+	// If no roles match, access is denied.
+	return finallyAllowed
+}
+
+func FilterMapFieldsByStructAndRole(referenceStructPointer any, source map[string]any, xsList []string) (filtered map[string]any, err error) {
+	filtered = make(map[string]any)
+	allowedFieldNames, err := GetFieldNamesWithWriteXS(referenceStructPointer, xsList)
+	if err != nil {
+		return nil, err
+	}
+
+	refVal := reflect.ValueOf(referenceStructPointer)
+	if refVal.Kind() != reflect.Ptr || refVal.Elem().Kind() != reflect.Struct {
+		return nil, ErrMustBeStructPointer
+	}
+	refType := refVal.Elem().Type()
+
+	jsonToFieldName := make(map[string]string)
+	for i := 0; i < refType.NumField(); i++ {
+		field := refType.Field(i)
+		jsonTag := strings.Split(field.Tag.Get("json"), ",")[0] // Get the first part of the JSON tag
+		if jsonTag != "" && jsonTag != "-" {
+			jsonToFieldName[field.Name] = jsonTag
+		}
+	}
+
+	for _, fieldName := range allowedFieldNames {
+		jsonFieldName := fieldName
+		if actualName, ok := jsonToFieldName[fieldName]; ok {
+			jsonFieldName = actualName
+		}
+
+		fieldVal, ok := source[jsonFieldName]
+		if !ok {
+			continue // Skip fields not found in the source map, no error needed
+		}
+
+		structField, found := refType.FieldByName(fieldName)
+		if !found {
+			continue // Skip fields not found in the struct, no error needed
+		}
+
+		if reflect.TypeOf(fieldVal) != structField.Type {
+			val := reflect.ValueOf(fieldVal)
+			if structField.Type.Kind() == reflect.Slice && val.Kind() == reflect.Slice {
+				elemType := structField.Type.Elem()
+				newSlice := reflect.MakeSlice(structField.Type, val.Len(), val.Cap())
+				for i := 0; i < val.Len(); i++ {
+					elemVal := val.Index(i)
+					if elemVal.Kind() == reflect.Interface && !elemVal.IsNil() {
+						elemVal = elemVal.Elem()
+					}
+					// Attempt to handle numeric type conversion for integers and floats
+					if elemVal.Type().ConvertibleTo(elemType) {
+						if elemType.Kind() >= reflect.Int && elemType.Kind() <= reflect.Float64 {
+							// Handle integer and floating conversions
+							if convertedVal, ok := tryConvertInt(elemVal, elemType); ok {
+								newSlice.Index(i).Set(convertedVal)
+								continue
+							} else if convertedVal, ok := tryConvertFloat(elemVal, elemType); ok {
+								newSlice.Index(i).Set(convertedVal)
+								continue
+							}
+						}
+						newSlice.Index(i).Set(elemVal.Convert(elemType))
+					} else {
+						return nil, ErrTypeMismatch
+					}
+				}
+				fieldVal = newSlice.Interface()
+			} else if structField.Type.Kind() == reflect.Map && val.Kind() == reflect.Map {
+				keyType := structField.Type.Key()
+				elemType := structField.Type.Elem()
+				newMap := reflect.MakeMapWithSize(structField.Type, val.Len())
+				for _, keyVal := range val.MapKeys() {
+					originalElem := val.MapIndex(keyVal)
+					if originalElem.Kind() == reflect.Interface && !originalElem.IsNil() {
+						originalElem = originalElem.Elem()
+					}
+					// Convert key if necessary
+					if keyVal.Type().ConvertibleTo(keyType) {
+						convertedKey := keyVal
+						if keyVal.Type() != keyType {
+							convertedKey = keyVal.Convert(keyType)
+						}
+						// Convert value if necessary
+						if originalElem.Type().ConvertibleTo(elemType) {
+							convertedValue := originalElem
+							if originalElem.Type() != elemType {
+								if elemType.Kind() >= reflect.Int && elemType.Kind() <= reflect.Float64 {
+									// Handle integer and floating conversions for values
+									if convertedVal, ok := tryConvertInt(originalElem, elemType); ok {
+										convertedValue = convertedVal
+									} else if convertedVal, ok := tryConvertFloat(originalElem, elemType); ok {
+										convertedValue = convertedVal
+									}
+								} else {
+									convertedValue = originalElem.Convert(elemType)
+								}
+							}
+							newMap.SetMapIndex(convertedKey, convertedValue)
+						} else {
+							return nil, ErrTypeMismatch
+						}
+					} else {
+						return nil, ErrTypeMismatch
+					}
+				}
+				fieldVal = newMap.Interface()
+			} else {
+				return nil, ErrTypeMismatch
+			}
+		}
+
+		// Finally, set the field name in the filtered map
+		filtered[fieldName] = fieldVal
+	}
+	return filtered, nil
+}
+
+// UpdateStructFields updates the fields of the given entity with the corresponding non-zero fields from the incomingEntity.
+// It returns a map of the updated fields and their values. If a field is not authorized to be set based on the setterRole,
+// it is skipped without returning an error. If any other error occurs during the field setting, the function returns an error.
+//
+// Parameters:
+//   - entity: a pointer to the struct to be updated
+//   - incomingEntity: a pointer to the struct containing the fields to update
+//   - setterRole: the role of the setter, used for authorization checks
+//
+// Returns:
+//   - A map of the updated field names and their corresponding values
+//   - An error if any error occurs during the field setting (except for unauthorized fields)
+func UpdateStructFields(entity any, incomingEntity any, roles []string) (map[string]any, error) {
+	updateFields := make(map[string]any)
+	incomingValue := reflect.ValueOf(incomingEntity).Elem()
+	entityType := reflect.TypeOf(entity).Elem()
+
+	for i := 0; i < incomingValue.NumField(); i++ {
+		field := entityType.Field(i)
+		fieldName := field.Name
+		incomingField := incomingValue.Field(i)
+
+		// Check if the field is settable and authorized
+		if CanSetField(entity, fieldName, roles) {
+			fieldValue := incomingField.Interface()
+			if err := SetField(entity, fieldName, fieldValue, roles); err == nil {
+				updateFields[fieldName] = fieldValue
+			} else {
+				return nil, err
+			}
+		}
+	}
+	return updateFields, nil
+}
+
+// SetField sets a field on a struct pointer, with validation and authorization checks based on the setterRole.
+//
+// Parameters:
+//   - entity: a pointer to the struct
+//   - fieldName: the name of the field to set
+//   - value: the value to set the field to
+//   - setterRole: the role of the setter, used for authorization checks
+//
+// Returns:
+//   - An error if the entity is not a pointer to a struct, the field is invalid, the setter is not authorized,
+//     or the value type is not convertible to the field type
+func SetField(entity any, fieldName string, value any, roles []string) error {
+	rv := reflect.ValueOf(entity)
+	if rv.Kind() != reflect.Ptr || rv.Elem().Kind() != reflect.Struct {
+		return ErrInvalidStructPointer
+	}
+	rv = rv.Elem()
+	field := rv.FieldByName(fieldName)
+	if !field.IsValid() {
+		return ErrInvalidFieldName
+	}
+	if !CanSetField(entity, fieldName, roles) {
+		return ErrUnauthorizedFieldSet
+	}
+	fieldType := field.Type()
+	val := reflect.ValueOf(value)
+	if !val.Type().AssignableTo(fieldType) && !val.Type().ConvertibleTo(fieldType) &&
+		!(fieldType.Kind() == reflect.Ptr && val.Type().AssignableTo(fieldType.Elem())) &&
+		!(val.Type().Kind() == reflect.Ptr && val.Type().Elem().AssignableTo(fieldType)) &&
+		!canConvertInt(val) && !canConvertFloat(val) {
+		return ErrInvalidFieldValue
+	}
+
+	if fieldType.Kind() == reflect.Ptr && val.Type().AssignableTo(fieldType.Elem()) {
+		// Field is a pointer and value is assignable to the underlying type
+		field.Set(reflect.New(fieldType.Elem()))
+		field.Elem().Set(val)
+	} else if val.Type().Kind() == reflect.Ptr && val.Type().Elem().AssignableTo(fieldType) {
+		// Value is a pointer and its underlying type is assignable to the field type
+		field.Set(val.Elem())
+	} else if val.Type().ConvertibleTo(fieldType) {
+		field.Set(val.Convert(fieldType))
+	} else if convertedValue, ok := tryConvertInt(val, fieldType); ok {
+		field.Set(convertedValue)
+	} else if convertedValue, ok := tryConvertFloat(val, fieldType); ok {
+		field.Set(convertedValue)
+	} else {
+		return ErrInvalidFieldValue
+	}
+	return nil
+}
+
+// CanSetField checks if a field can be set based on the setter's role and the field's `writexs` tag.
+//
+// Parameters:
+//   - entity: a pointer to the struct or the struct itself
+//   - fieldName: the name of the field to check
+//   - setterRole: the role of the setter
+//
+// Returns:
+//   - A boolean indicating whether the field can be set by the given setter role
+func CanSetField(entity any, fieldName string, roles []string) bool {
+	typ := reflect.TypeOf(entity)
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	field, ok := typ.FieldByName(fieldName)
+	if !ok {
+		return false
+	}
+	return IsFieldAccessAllowed(roles, field.Tag.Get(tagNameWriteXS))
+}
+
+// tryConvertInt attempts to convert an integer value from one type to another
+func tryConvertInt(val reflect.Value, targetType reflect.Type) (reflect.Value, bool) {
+	switch targetType.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		intVal := val.Convert(reflect.TypeOf(int64(0))).Int()
+		return reflect.ValueOf(intVal).Convert(targetType), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		uintVal := val.Convert(reflect.TypeOf(uint64(0))).Uint()
+		return reflect.ValueOf(uintVal).Convert(targetType), true
+	default:
+		return reflect.Value{}, false
+	}
+}
+
+// tryConvertFloat attempts to convert a floating-point value from one type to another
+func tryConvertFloat(val reflect.Value, targetType reflect.Type) (reflect.Value, bool) {
+	if targetType.Kind() == reflect.Float32 || targetType.Kind() == reflect.Float64 {
+		floatVal := val.Convert(reflect.TypeOf(float64(0))).Float()
+		return reflect.ValueOf(floatVal).Convert(targetType), true
+	}
+	return reflect.Value{}, false
+}
+
+// canConvertInt checks if a value can be converted to an integer type
+func canConvertInt(val reflect.Value) bool {
+	switch val.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return true
+	default:
+		return false
+	}
+}
+
+// canConvertFloat checks if a value can be converted to a floating-point type
+func canConvertFloat(val reflect.Value) bool {
+	switch val.Kind() {
+	case reflect.Float32, reflect.Float64:
+		return true
+	default:
+		return false
+	}
 }

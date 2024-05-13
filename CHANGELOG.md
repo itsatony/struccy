@@ -4,7 +4,24 @@ All notable changes to the struccy package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.0] - 2023-06-15
+## [1.4.0] - 2024-05-13
+
+[1.4.0]: https://github.com/itsatony/struccy/releases/tag/v1.4.0
+
+### Added 1.4.0
+
+- Worked under the assumption that this package will try to convert types where useful/helpful and safe. This includes int8->int or int8->int64 as well as *string->string, where the value behind the pointer is not nil. This makes sense in light of this package's purpose to convert structs to maps and vice versa, where incoming json data might be of a different type than the struct field.
+- Introduced a new function `MergeMapStringFieldsToStruct` to merge map fields to a struct based on the provided xsList tags `xswrite`.
+- Added new test cases to cover scenarios with map fields and xsList tags.
+- Fixed a bug where map fields were not correctly merged to the struct in the `MergeMapStringFieldsToStruct` function.
+
+### Changed 1.4.0
+
+- Updated the `MergeStructUpdateTo` function to handle cases where the source field is a pointer to a slice and the destination field is a non-pointer slice.
+- Modified the `FilterStructTo` function to correctly filter fields with pointer types to slices.
+- Improved error handling and type mismatch detection in the `FilterStructTo` and `MergeStructUpdateTo` functions.
+
+## [1.3.0] - 2024-05-11
 
 [1.3.0]: https://github.com/itsatony/struccy/releases/tag/v1.3.0
 
@@ -12,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Introduced a new function `MergeMapStringFieldsToStruct` to merge map fields to a struct based xsList tags `xswrite`.
 
-## [1.2.0] - 2023-06-15
+## [1.2.0] - 2024-05-11
 
 [1.2.0]: https://github.com/itsatony/struccy/releases/tag/v1.2.0
 
@@ -44,7 +61,7 @@ The README.md file has been updated with documentation and usage examples for th
 
 The changelog entry also includes a link to compare the changes between version 1.1.0 and 1.2.0 using the GitHub comparison URL.
 
-## [1.1.0] - 2023-06-14
+## [1.1.0] - 2024-05-11
 
 [1.1.0]: https://github.com/itsatony/struccy/releases/tag/v1.1.0
 
@@ -64,7 +81,7 @@ The changelog entry also includes a link to compare the changes between version 
 - Fixed an issue where fields with pointer types to slices were not correctly filtered or merged.
 - Resolved test failures related to pointer fields and slice type mismatches.
 
-## [1.0.0] - 2023-06-13
+## [1.0.0] - 2024-05-11
 
 [1.0.0]: https://github.com/itsatony/struccy/releases/tag/v1.0.0
 

@@ -3,407 +3,133 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/itsatony/struccy)](https://goreportcard.com/report/github.com/itsatony/struccy)
 [![GoDoc](https://godoc.org/github.com/itsatony/struccy?status.svg)](https://godoc.org/github.com/itsatony/struccy)
 
-`struccy` is a Go package that provides utility functions for working with structs.
+`struccy` is a Go package that provides utility functions for working with structs, focusing on struct manipulation, filtering, and merging capabilities, while handling role-based field access and type-safe operations.
 
 ## Installation
-
-To install the struccy package, run the following command:
 
 ```bash
 go get github.com/itsatony/struccy
 ```
 
-## JSON Tagging for `xsread` and `xswrite`
+## Features
 
-The `struccy` package introduces two special JSON tags, `xsread` and `xswrite`, which allow you to control the visibility of struct fields based on roles or scenarios. These tags provide a flexible way to include or exclude fields during struct filtering and merging operations.
+- **Struct Field Access Control**: Utilize `readxs` and `writexs` tags to manage read and write access to struct fields based on roles.
+- **Type-safe Merging and Filtering**: Safely merge and filter data between structs with full support for type conversions.
+- **Conversion Utilities**: Convert structs to maps or JSON strings, applying field-level access rules.
 
-### `xsread` Tag
+## Field Access Control
 
-The `xsread` tag is used to specify the roles or scenarios for which a field should be included when reading or filtering a struct. It accepts a comma-separated list of strings representing the allowed roles or scenarios.
+`struccy` uses special struct tags (`readxs` and `writexs`) to control access to struct fields based on roles or scenarios:
 
-Example:
+- **`readxs`**: Controls visibility during read operations like filtering or converting to JSON/map.
+- **`writexs`**: Controls modification access during struct updates or merges.
+
+### Tag Features
+
+- **Wildcard `*`**: Grants access to all roles.
+- **Negation `!`**: Explicitly denies access to specified roles.
+
+### Struct Field Access Example
 
 ```go
-type User struct {
- Name     string `json:"name"`
- Email    string `json:"email" xsread:"admin,user"`
- Password string `json:"password" xsread:"admin"`
+type Profile struct {
+    Name    string `readxs:"*"`
+    Email   string `readxs:"admin,user"`
+    Address string `readxs:"!public"`
 }
 ```
 
-In this example, the `Email` field is tagged with `xsread:"admin,user"`, indicating that it should be included when filtering the struct for roles "admin" or "user". The `Password` field is tagged with `xsread:"admin"`, indicating that it should be included only when filtering for the "admin" role.
+- `Name` is accessible to all roles.
+- `Email` is accessible only to `admin` and `user` roles.
+- `Address` is hidden from `public`.
 
-### `xswrite` Tag
+## Struct Manipulation Functions
 
-The `xswrite` tag is used to specify the roles or scenarios for which a field should be included when writing or merging a struct. It follows the same format as the `xsread` tag, accepting a comma-separated list of strings representing the allowed roles or scenarios.
+### UpdateStructFields
 
-Example:
+Updates fields of a struct based on non-zero values from another struct, applying role-based field access.
+
+**Parameters**:
+
+- `entity`: Target struct to update.
+- `incomingEntity`: Struct containing update values.
+- `roles`: Roles applicable to the operation.
+
+**Returns**:
+
+- Updated fields map.
+- Error if update fails due to access restrictions or type mismatches.
+
+### SetField
+
+Sets a value to a struct field with role-based access and type conversion.
+
+**Parameters**:
+
+- `entity`: Struct to update.
+- `fieldName`: Field name to update.
+- `value`: Value to set.
+- `roles`: User roles for access validation.
+
+**Returns**:
+
+- Error if the field can't be set due to access restrictions or type incompatibilities.
+
+### CanSetField
+
+Checks if a field can be set based on the user's roles.
+
+**Parameters**:
+
+- `entity`: Struct containing the field.
+- `fieldName`: Field name to check.
+- `roles`: Roles to evaluate.
+
+**Returns**:
+
+- `true` if the field can be set, `false` otherwise.
+
+## Usage Examples
+
+### Merging Structs with Field Access
 
 ```go
-type User struct {
- Name     string `json:"name"`
- Email    string `json:"email" xswrite:"admin,user"`
- Password string `json:"password" xswrite:"admin"`
-}
-```
-
-In this example, the `Email` field is tagged with `xswrite:"admin,user"`, indicating that it should be included when merging the struct for roles "admin" or "user". The `Password` field is tagged with `xswrite:"admin"`, indicating that it should be included only when merging for the "admin" role.
-
-### Special Characters
-
-The `xsread` and `xswrite` tags support two special characters:
-
-- `*`: Represents all roles or scenarios. When used, it includes the field for any role or scenario.
-- `!`: Represents a negation. When used before a role or scenario, it excludes the field for that specific role or scenario.
-
-Example:
-
-```go
-type User struct {
- Name     string `json:"name"`
- Email    string `json:"email" xsread:"*"`
- Password string `json:"password" xsread:"*,!public"`
-}
-```
-
-In this example, the `Email` field is tagged with `xsread:"*"`, indicating that it should be included for all roles or scenarios. The `Password` field is tagged with `xsread:"*,!public"`, indicating that it should be included for all roles or scenarios except for the "public" role.
-
-### Usage in `FilterStructTo` and `MergeStructUpdateTo`
-
-The `FilterStructTo` and `MergeStructUpdateTo` functions in the `struccy` package utilize the `xsread` and `xswrite` tags to determine which fields should be included based on the provided roles or scenarios.
-
-The `isFieldAccessAllowed` helper function is used internally to check if a field should be included based on the specified tags and the given roles or scenarios.
-
-Example usage of `FilterStructTo`:
-
-```go
-user := User{
- Name:     "John Doe",
- Email:    "john@example.com",
- Password: "secret",
+adminUser := User{
+    Email: "admin@example.com",
+    Role:  "admin",
 }
 
-var filteredUser User
-err := struccy.FilterStructTo(&user, &filteredUser, []string{"user"}, true)
+incomingUpdates := map[string]any{
+    "Email": "newadmin@example.com",
+    "Role":  "user",  // Assuming 'Role' field is protected and not writable by 'admin'
+}
+
+updatedUser, err := MergeMapStringFieldsToStruct(&adminUser, incomingUpdates, []string{"admin"})
 if err != nil {
- log.Fatal(err)
+    log.Println("Failed to merge:", err)
 }
-fmt.Printf("%+v\n", filteredUser)
-// Output: {Name:John Doe Email:john@example.com Password:}
+fmt.Printf("Updated User: %+v\n", updatedUser)
 ```
 
-In this example, the `FilterStructTo` function is called with the `user` struct, and the roles or scenarios are specified as `[]string{"user"}`. Based on the `xsread` tags, the `Name` and `Email` fields are included in the filtered struct, while the `Password` field is excluded.
-
-Example usage of `MergeStructUpdateTo`:
+### Filtering Structs to JSON with Role-based Access
 
 ```go
-existingUser := User{
- Name:  "John Doe",
- Email: "john@example.com",
+user := Profile{
+    Name:    "John Doe",
+    Email:   "john@example.com",
+    Address: "Secret Location",
 }
 
-updatedUser := User{
- Email:    "johndoe@example.com",
- Password: "newpassword",
-}
-
-err := struccy.MergeStructUpdateTo(&updatedUser, &existingUser, []string{"admin"})
+jsonOutput, err := StructToJSONFieldsWithReadXS(&user, []string{"user"})
 if err != nil {
- log.Fatal(err)
+    log.Println("Error generating JSON:", err)
 }
-fmt.Printf("%+v\n", existingUser)
-// Output: {Name:John Doe Email:johndoe@example.com Password:newpassword}
+fmt.Println("JSON Output:", jsonOutput)
 ```
 
-In this example, the `MergeStructUpdateTo` function is called with the `updatedUser` struct, and the roles or scenarios are specified as `[]string{"admin"}`. Based on the `xswrite` tags, the `Email` and `Password` fields are merged into the `existingUser` struct.
+## Struct to Map/JSON Conversion
 
-By leveraging the `xsread` and `xswrite` tags, you can control the visibility of struct fields based on roles or scenarios, providing a flexible way to filter and merge structs according to your application's requirements.
-
-## General Usage
-
-### MergeStructUpdateTo
-
-The MergeStructUpdateTo function merges the fields of a source struct into a destination struct. It takes a pointer to the source struct and a pointer to the destination struct.
-
-```go
-func MergeStructUpdateTo(sourceStruct any, destinationStruct any) error
-```
-
-**Example:**
-
-```go
-type Source struct {
- Field1 string
- Field2 int
- Field3 *string
-}
-
-type Destination struct {
- Field1 string
- Field2 int
- Field3 *string
- Field4 bool
-}
-
-source := &Source{
- Field1: "Hello",
- Field2: 42,
- Field3: nil,
-}
-
-destination := &Destination{
- Field1: "World",
- Field2: 0,
- Field3: nil,
- Field4: true,
-}
-
-err := struccy.MergeStructUpdateTo(source, destination)
-if err != nil {
- fmt.Println("Error:", err)
- return
-}
-
-fmt.Printf("Merged struct: %+v\n", destination)
-```
-
-**Output:**
-
-```bash
-Merged struct: &{Field1:Hello Field2:42 Field3:<nil> Field4:true}
-```
-
-### FilterStructTo
-
-The FilterStructTo function filters the fields of a source struct and assigns the allowed fields to a destination struct. It takes a pointer to the source struct, a pointer to the destination struct, a list of excluded fields (xsList), and a boolean flag (zeroDisallowed) indicating whether zero values are allowed for excluded fields.
-
-```go
-func FilterStructTo(sourceStruct any, filteredStruct any, xsList []string, zeroDisallowed bool) error
-```
-
-**Example:**
-
-```go
-type Source struct {
-    Field1 string
-    Field2 int
-    Field3 *string
-}
-
-type Filtered struct {
-    Field1 string
-    Field2 int
-    Field3 *string
-}
-
-source := &Source{
-    Field1: "Hello",
-    Field2: 42,
-    Field3: nil,
-}
-
-filtered := &Filtered{}
-
-xsList := []string{"Field2"}
-zeroDisallowed := true
-
-err := struccy.FilterStructTo(source, filtered, xsList, zeroDisallowed)
-if err != nil {
-    fmt.Println("Error:", err)
-    return
-}
-
-fmt.Printf("Filtered struct: %+v\n", filtered)
-```
-
-**Output:**
-
-```bash
-Filtered struct: &{Field1:Hello Field2:0 Field3:<nil>}
-```
-
-### StructToJSONFields
-
-StructToJSONFields takes a pointer to a struct and a slice of field names, and returns a JSON string of the struct fields filtered to the specified field names.
-If any error occurs during the process, an empty string and the error are returned.
-
-```go
-func StructToJSONFields(structPtr any, fieldNames []string) (string, error)
-```
-
-**Example:**
-
-```go
-type Example struct {
-    Field1 string
-    Field2 int
-    Field3 *string
-}
-
-example := &Example{
-    Field1: "Hello",
-    Field2: 42,
-    Field3: nil,
-}
-
-fieldNames := []string{"Field1", "Field3"}
-
-jsonStr, err := struccy.StructToJSONFields(example, fieldNames)
-
-if err != nil {
-    fmt.Println("Error:", err)
-    return
-}
-
-fmt.Println("Filtered JSON:", jsonStr)
-```
-
-**Output:**
-
-```bash
-Filtered JSON: {"Field1":"Hello","Field3":null}
-```
-
-### StructToMapFields
-
-StructToMapFields takes a pointer to a struct and a slice of field names, and returns a map of the struct fields filtered to the specified field names.
-
-```go
-func StructToMapFields(structPtr any, fieldNames []string) (map[string]interface{}, error)
-```
-
-**Example:**
-
-```go
-type Example struct {
-    Field1 string
-    Field2 int
-    Field3 *string
-}
-
-example := &Example{
-    Field1: "Hello",
-    Field2: 42,
-    Field3: nil,
-}
-
-fieldNames := []string{"Field1", "Field3"}
-
-fieldMap, err := struccy.StructToMapFields(example, fieldNames)
-
-if err != nil {
-    fmt.Println("Error:", err)
-    return
-}
-
-fmt.Println("Filtered map:", fieldMap)
-```
-
-**Output:**
-
-```bash
-Filtered map: map[Field1:Hello Field3:<nil>]
-```
-
-### StructToMap
-
-StructToMap takes a pointer to a struct and returns a map of the struct fields.
-
-```go
-func StructToMap(structPtr any) (map[string]interface{}, error)
-```
-
-**Example:**
-
-```go
-type Example struct {
-    Field1 string
-    Field2 int
-    Field3 *string
-}
-
-example := &Example{
-    Field1: "Hello",
-    Field2: 42,
-    Field3: nil,
-}
-
-fieldMap, err := struccy.StructToMap(example)
-
-if err != nil {
-    fmt.Println("Error:", err)
-    return
-}
-
-fmt.Println("Field map:", fieldMap)
-```
-
-**Output:**
-
-```bash
-Field map: map[Field1:Hello Field2:42 Field3:<nil>]
-```
-
-### MergeMapStringFieldsToStruct
-
-The `MergeMapStringFieldsToStruct` function merges the fields from a `map[string]any` into a target struct. It allows updating the struct fields based on the corresponding entries in the map, while respecting the specified access rules (xsList).
-
-```go
-func MergeMapStringFieldsToStruct(targetStruct any, updateMap map[string]any, xsList []string) (any, error)
-```
-
-#### Parameters
-
-- `targetStruct`: A pointer to the target struct to be updated.
-- `updateMap`: A `map[string]any` containing the fields to update.
-- `xsList`: A slice of strings representing the allowed field names for merging.
-
-#### Return Value
-
-- The updated struct.
-- An error if the target struct is not a pointer to a struct or if an error occurs during the merging process.
-
-#### Example
-
-```go
-type MyStruct struct {
- Field1 string `xswrite:"admin,user"`
- Field2 int    `xswrite:"admin"`
- Field3 *bool  `xswrite:"user"`
-}
-
-targetStruct := &MyStruct{
- Field1: "initial1",
- Field2: 10,
- Field3: nil,
-}
-
-updateMap := map[string]any{
- "Field1": "updated1",
- "Field2": 20,
- "Field3": true,
-}
-
-xsList := []string{"admin", "user"}
-
-result, err := MergeMapStringFieldsToStruct(targetStruct, updateMap, xsList)
-if err != nil {
- log.Fatal(err)
-}
-
-fmt.Printf("Updated struct: %+v\n", result)
-// Output: Updated struct: &{Field1:updated1 Field2:20 Field3:0xc00000e0c8}
-```
-
-In this example, we have a `MyStruct` with three fields: `Field1`, `Field2`, and `Field3`. We create an instance of `MyStruct` called `targetStruct` with some initial values.
-
-We also have an `updateMap` containing the fields we want to update, along with their new values. The `xsList` specifies the allowed field names for merging.
-
-We call the `MergeMapStringFieldsToStruct` function, passing the `targetStruct`, `updateMap`, and `xsList`. The function merges the fields from the `updateMap` into the `targetStruct` based on the matching field names and the access rules defined in the `xsList`.
-
-Finally, we print the updated struct, which reflects the changes made by merging the fields from the `updateMap`.
-
-The `MergeMapStringFieldsToStruct` function provides a convenient way to update struct fields using a `map[string]any`, while respecting the specified access rules. It simplifies the process of merging fields from a map into a struct, handling type conversions and field access control based on the `xswrite` tags.
+`struccy` provides functions to convert structs to maps or JSON strings, respecting `readxs` and `writexs` tags. This allows for dynamic data handling in applications that require role-based data visibility.
 
 ### Convenience Functions
 
@@ -637,16 +363,12 @@ These convenience functions provide additional flexibility and utility when work
 
 ## Contributing
 
-Contributions to the struccy package are welcome! If you find any issues or have suggestions for improvements, please open an issue or submit a pull request on the GitHub repository.
+Contributions are welcome! Please feel free to submit pull requests or create issues for bugs and feature requests on our [GitHub repository](https://github.com/itsatony/struccy).
 
 ## License
 
-The struccy package is open-source software licensed under the MIT License.
-
-## Acknowledgements
-
-The struccy package was inspired by the need for a simple and efficient way to handle struct merging and filtering based on field-level access control in Go applications.
+`struccy` is licensed under the MIT License. See the LICENSE file for more details.
 
 ## Contact
 
-For any questions or inquiries, please contact the package maintainer at [vaudience](dev@vaudience.ai) .
+For inquiries, please contact [itsatony](mailto:dev@vaudience.ai).
