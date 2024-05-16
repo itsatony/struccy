@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const Version = "1.4.0"
+const Version = "1.5.0"
 
 const (
 	tagNameReadXS  = "readxs"
@@ -38,6 +38,8 @@ var (
 	ErrMustBeStructPointer         = errors.New("reference must be a pointer to a struct")
 	ErrUnauthorizedFieldSet        = errors.New("unauthorized field set")
 	ErrInvalidFieldValue           = errors.New("invalid field value")
+	ErrInvalidFieldType            = errors.New("invalid field type")
+	ErrInvalidPtrType              = errors.New("invalid pointer type")
 )
 
 // MergeStructUpdateTo merges the fields of a source struct into a destination struct.
@@ -805,31 +807,40 @@ func FilterMapFieldsByStructAndRole(referenceStructPointer any, source map[strin
 //   - entity: a pointer to the struct to be updated
 //   - incomingEntity: a pointer to the struct containing the fields to update
 //   - setterRole: the role of the setter, used for authorization checks
+//   - skipZeroVals: a flag indicating whether zero values should be skipped
+//   - ignoreUnsettables: a flag indicating whether to ignore unsettable fields or throw an error upon attempt
 //
 // Returns:
 //   - A map of the updated field names and their corresponding values
 //   - An error if any error occurs during the field setting (except for unauthorized fields)
-func UpdateStructFields(entity any, incomingEntity any, roles []string) (map[string]any, error) {
-	updateFields := make(map[string]any)
+func UpdateStructFields(entity any, incomingEntity any, roles []string, skipZeroVals bool, ignoreUnsettables bool) (updatedFields map[string]any, unsettableFields map[string]any, err error) {
+	updatedFields = make(map[string]any)
+	unsettableFields = make(map[string]any)
 	incomingValue := reflect.ValueOf(incomingEntity).Elem()
 	entityType := reflect.TypeOf(entity).Elem()
 
 	for i := 0; i < incomingValue.NumField(); i++ {
-		field := entityType.Field(i)
-		fieldName := field.Name
-		incomingField := incomingValue.Field(i)
-
+		entityField := entityType.Field(i)
+		incomingField := incomingValue.FieldByName(entityField.Name)
+		if !incomingField.IsValid() {
+			continue
+		}
 		// Check if the field is settable and authorized
-		if CanSetField(entity, fieldName, roles) {
+		if IsAllowedToSetField(entity, entityField.Name, roles) {
 			fieldValue := incomingField.Interface()
-			if err := SetField(entity, fieldName, fieldValue, roles); err == nil {
-				updateFields[fieldName] = fieldValue
+			err := SetField(entity, entityField.Name, fieldValue, skipZeroVals, roles)
+			if err == nil {
+				updatedFields[entityField.Name] = fieldValue
 			} else {
-				return nil, err
+				unsettableFields[entityField.Name] = fieldValue
+				if ignoreUnsettables {
+					continue
+				}
+				return nil, unsettableFields, err
 			}
 		}
 	}
-	return updateFields, nil
+	return updatedFields, unsettableFields, nil
 }
 
 // SetField sets a field on a struct pointer, with validation and authorization checks based on the setterRole.
@@ -843,7 +854,8 @@ func UpdateStructFields(entity any, incomingEntity any, roles []string) (map[str
 // Returns:
 //   - An error if the entity is not a pointer to a struct, the field is invalid, the setter is not authorized,
 //     or the value type is not convertible to the field type
-func SetField(entity any, fieldName string, value any, roles []string) error {
+func SetField(entity any, fieldName string, value any, skipZeroVals bool, roles []string) error {
+	// fmt.Printf("SetField: FieldName: (%s), Value: (%v)\n", fieldName, value)
 	rv := reflect.ValueOf(entity)
 	if rv.Kind() != reflect.Ptr || rv.Elem().Kind() != reflect.Struct {
 		return ErrInvalidStructPointer
@@ -853,38 +865,189 @@ func SetField(entity any, fieldName string, value any, roles []string) error {
 	if !field.IsValid() {
 		return ErrInvalidFieldName
 	}
-	if !CanSetField(entity, fieldName, roles) {
+	if !IsAllowedToSetField(entity, fieldName, roles) {
 		return ErrUnauthorizedFieldSet
 	}
 	fieldType := field.Type()
 	val := reflect.ValueOf(value)
-	if !val.Type().AssignableTo(fieldType) && !val.Type().ConvertibleTo(fieldType) &&
-		!(fieldType.Kind() == reflect.Ptr && val.Type().AssignableTo(fieldType.Elem())) &&
-		!(val.Type().Kind() == reflect.Ptr && val.Type().Elem().AssignableTo(fieldType)) &&
-		!canConvertInt(val) && !canConvertFloat(val) {
-		return ErrInvalidFieldValue
+	// Check if the value type is convertible to the field type
+	// for all cases, where we have a field type of X and a value type of *X,
+	// like string and a value type of *string or int and a value type of *int,
+	// we will assign the field to a copy of the value of the pointer as after ensuring that the value is not nil
+	if (val.Kind() == reflect.Ptr && val.IsNil()) || val.IsZero() {
+		// Skip nil assignments without an error
+		// fmt.Printf("Skip nil/Zero assignment for field(%s) without an error\n", fieldName)
+		return nil
+	}
+	// fmt.Printf("Field(%s) Type: (%v) vs. Value-Type:(%v)\n", fieldName, fieldType, val.Type())
+	if val.Type().AssignableTo(fieldType) {
+		field.Set(val)
+		return nil
+	} else {
+		// fmt.Printf("#notAssignableOuter Field(%s) Type: (%v) vs. Value-Type:(%v)\n", fieldName, fieldType, val.Type())
+		if val.Kind() == reflect.Ptr && val.Type().Elem().AssignableTo(fieldType) {
+			// fmt.Printf("pointer conversion attempt for field(%s)\n", fieldName)
+			if fieldType.Kind() == reflect.Ptr {
+				field.Set(reflect.New(fieldType.Elem()))
+				field.Elem().Set(val.Elem())
+				return nil
+			}
+			if fieldType.Kind() == reflect.String {
+				if val.Elem().Kind() == reflect.String {
+					field.SetString(val.Elem().String())
+					return nil
+				}
+			}
+			if fieldType.Kind() == reflect.Int || fieldType.Kind() == reflect.Int8 || fieldType.Kind() == reflect.Int16 || fieldType.Kind() == reflect.Int32 || fieldType.Kind() == reflect.Int64 {
+				if val.Elem().Kind() == reflect.Int || val.Elem().Kind() == reflect.Int8 || val.Elem().Kind() == reflect.Int16 || val.Elem().Kind() == reflect.Int32 || val.Elem().Kind() == reflect.Int64 {
+					field.SetInt(val.Elem().Int())
+					return nil
+				}
+			}
+			if fieldType.Kind() == reflect.Uint || fieldType.Kind() == reflect.Uint8 || fieldType.Kind() == reflect.Uint16 || fieldType.Kind() == reflect.Uint32 || fieldType.Kind() == reflect.Uint64 {
+				if val.Elem().Kind() == reflect.Uint || val.Elem().Kind() == reflect.Uint8 || val.Elem().Kind() == reflect.Uint16 || val.Elem().Kind() == reflect.Uint32 || val.Elem().Kind() == reflect.Uint64 {
+					field.SetUint(val.Elem().Uint())
+					return nil
+				}
+			}
+			if fieldType.Kind() == reflect.Float32 || fieldType.Kind() == reflect.Float64 {
+				if val.Elem().Kind() == reflect.Float32 || val.Elem().Kind() == reflect.Float64 {
+					field.SetFloat(val.Elem().Float())
+					return nil
+				}
+				// also convert any int or pointer to an int to a float type target field
+				if val.Elem().Kind() == reflect.Int || val.Elem().Kind() == reflect.Int8 || val.Elem().Kind() == reflect.Int16 || val.Elem().Kind() == reflect.Int32 || val.Elem().Kind() == reflect.Int64 {
+					field.SetFloat(float64(val.Elem().Int()))
+					return nil
+				}
+			}
+			if fieldType.Kind() == reflect.Bool {
+				if val.Elem().Kind() == reflect.Bool {
+					field.SetBool(val.Elem().Bool())
+					return nil
+				}
+			}
+			// slice to slice
+			if fieldType.Kind() == reflect.Slice && val.Elem().Kind() == reflect.Slice {
+				if val.Elem().Type().Elem().AssignableTo(fieldType.Elem()) {
+					field.Set(val.Elem())
+					return nil
+				}
+			}
+			// slice to *slice
+			if fieldType.Kind() == reflect.Ptr && val.Elem().Kind() == reflect.Slice {
+				if val.Elem().Type().Elem().AssignableTo(fieldType.Elem()) {
+					field.Set(val.Elem())
+					return nil
+				}
+			}
+			// map to map
+			if fieldType.Kind() == reflect.Map && val.Elem().Kind() == reflect.Map {
+				if val.Elem().Type().Key().AssignableTo(fieldType.Key()) && val.Elem().Type().Elem().AssignableTo(fieldType.Elem()) {
+					field.Set(val.Elem())
+					return nil
+				}
+			}
+			// map to *map
+			if fieldType.Kind() == reflect.Ptr && val.Elem().Kind() == reflect.Map {
+				if val.Elem().Type().Key().AssignableTo(fieldType.Elem().Key()) && val.Elem().Type().Elem().AssignableTo(fieldType.Elem().Elem()) {
+					field.Set(val.Elem())
+					return nil
+				}
+			}
+			// struct to struct
+			if fieldType.Kind() == reflect.Struct && val.Elem().Kind() == reflect.Struct {
+				if val.Elem().Type().AssignableTo(fieldType) {
+					field.Set(val.Elem())
+					return nil
+				}
+			}
+			// struct to *struct
+			if fieldType.Kind() == reflect.Ptr && val.Elem().Kind() == reflect.Struct {
+				if val.Elem().Type().AssignableTo(fieldType.Elem()) {
+					field.Set(val.Elem())
+					return nil
+				}
+			}
+			return ErrInvalidFieldType
+		}
+		if !val.Type().ConvertibleTo(fieldType) {
+			if fieldType.Kind() == reflect.Ptr && val.Type().AssignableTo(fieldType.Elem()) {
+				return ErrInvalidPtrType
+			} else if fieldType.Kind() == reflect.Int || fieldType.Kind() == reflect.Int8 || fieldType.Kind() == reflect.Int16 || fieldType.Kind() == reflect.Int32 || fieldType.Kind() == reflect.Int64 || fieldType.Kind() == reflect.Uint || fieldType.Kind() == reflect.Uint8 || fieldType.Kind() == reflect.Uint16 || fieldType.Kind() == reflect.Uint32 || fieldType.Kind() == reflect.Uint64 {
+				if !canConvertInt(val) {
+					// fmt.Printf("!canConvertInt --> Field(%s) Type: (%v) vs. Value-Type:(%v)\n", fieldName, fieldType, val.Type())
+					return ErrInvalidFieldType
+				} else {
+					convertedValue, ok := tryConvertInt(val, fieldType)
+					if ok {
+						field.Set(convertedValue)
+						// finalValue := field.Interface()
+						// fmt.Printf("Field(%s) Type: (%v) vs. Value-Type:(%v) --> Set value to(%v)\n", fieldName, fieldType, val.Type(), finalValue)
+						return nil
+					}
+				}
+			} else if fieldType.Kind() == reflect.Float32 || fieldType.Kind() == reflect.Float64 {
+				if !canConvertFloat(val) {
+					// fmt.Printf("!canConvertFloat --> Field(%s) Type: (%v) vs. Value-Type:(%v)\n", fieldName, fieldType, val.Type())
+					return ErrInvalidFieldType
+				} else {
+					convertedValue, ok := tryConvertFloat(val, fieldType)
+					if ok {
+						field.Set(convertedValue)
+						// finalValue := field.Interface()
+						// fmt.Printf("Field(%s) Type: (%v) vs. Value-Type:(%v) --> Set value to(%v)\n", fieldName, fieldType, val.Type(), finalValue)
+						return nil
+					}
+				}
+			} else if val.Type().Kind() == reflect.Ptr && val.Type().Elem().AssignableTo(fieldType) {
+				// fmt.Printf("#notAssignableINNER Field Type: (%v) vs. Value-Type:(%v)\n", fieldType, val.Type())
+				return ErrInvalidFieldType
+			}
+		} else {
+			if fieldType.Kind() == reflect.Ptr && val.Type().AssignableTo(fieldType.Elem()) {
+				// Field is a pointer and value is assignable to the underlying type
+				field.Set(reflect.New(fieldType.Elem()))
+				field.Elem().Set(val)
+			} else if val.Type().Kind() == reflect.Ptr && val.Type().Elem().AssignableTo(fieldType) {
+				// Value is a pointer and its underlying type is assignable to the field type
+				field.Set(val.Elem())
+			} else if val.Type().ConvertibleTo(fieldType) {
+				field.Set(val.Convert(fieldType))
+			} else if convertedValue, ok := tryConvertInt(val, fieldType); ok {
+				field.Set(convertedValue)
+			} else if convertedValue, ok := tryConvertFloat(val, fieldType); ok {
+				field.Set(convertedValue)
+			} else {
+				// fmt.Printf("#fdgf Field Type: (%v) vs. Value-Type:(%v)\n", fieldType, val.Type())
+				return ErrInvalidFieldValue
+			}
+			return ErrInvalidFieldType
+		}
 	}
 
-	if fieldType.Kind() == reflect.Ptr && val.Type().AssignableTo(fieldType.Elem()) {
-		// Field is a pointer and value is assignable to the underlying type
-		field.Set(reflect.New(fieldType.Elem()))
-		field.Elem().Set(val)
-	} else if val.Type().Kind() == reflect.Ptr && val.Type().Elem().AssignableTo(fieldType) {
-		// Value is a pointer and its underlying type is assignable to the field type
-		field.Set(val.Elem())
-	} else if val.Type().ConvertibleTo(fieldType) {
-		field.Set(val.Convert(fieldType))
-	} else if convertedValue, ok := tryConvertInt(val, fieldType); ok {
-		field.Set(convertedValue)
-	} else if convertedValue, ok := tryConvertFloat(val, fieldType); ok {
-		field.Set(convertedValue)
-	} else {
-		return ErrInvalidFieldValue
-	}
+	// field.Set(val.Convert(fieldType))
+
+	// if fieldType.Kind() == reflect.Ptr && val.Type().AssignableTo(fieldType.Elem()) {
+	// 	// Field is a pointer and value is assignable to the underlying type
+	// 	field.Set(reflect.New(fieldType.Elem()))
+	// 	field.Elem().Set(val)
+	// } else if val.Type().Kind() == reflect.Ptr && val.Type().Elem().AssignableTo(fieldType) {
+	// 	// Value is a pointer and its underlying type is assignable to the field type
+	// 	field.Set(val.Elem())
+	// } else if val.Type().ConvertibleTo(fieldType) {
+	// 	field.Set(val.Convert(fieldType))
+	// } else if convertedValue, ok := tryConvertInt(val, fieldType); ok {
+	// 	field.Set(convertedValue)
+	// } else if convertedValue, ok := tryConvertFloat(val, fieldType); ok {
+	// 	field.Set(convertedValue)
+	// } else {
+	// 	return ErrInvalidFieldValue
+	// }
 	return nil
 }
 
-// CanSetField checks if a field can be set based on the setter's role and the field's `writexs` tag.
+// IsAllowedToSetField checks if a field can be set based on the setter's role and the field's `writexs` tag.
 //
 // Parameters:
 //   - entity: a pointer to the struct or the struct itself
@@ -893,7 +1056,7 @@ func SetField(entity any, fieldName string, value any, roles []string) error {
 //
 // Returns:
 //   - A boolean indicating whether the field can be set by the given setter role
-func CanSetField(entity any, fieldName string, roles []string) bool {
+func IsAllowedToSetField(entity any, fieldName string, roles []string) bool {
 	typ := reflect.TypeOf(entity)
 	if typ.Kind() == reflect.Ptr {
 		typ = typ.Elem()

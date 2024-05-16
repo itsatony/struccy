@@ -4,6 +4,15 @@ All notable changes to the struccy package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2024-05-16
+
+[1.5.0]: https://github.com/itsatony/struccy/releases/tag/v1.5.0
+
+### Added 1.5.0
+
+- Added more args to tightly control SetField and UpdateStructFields functions.
+- Added lots of edge case SetField handling (like assigning *int8 to float64, etc.).
+
 ## [1.4.0] - 2024-05-13
 
 [1.4.0]: https://github.com/itsatony/struccy/releases/tag/v1.4.0

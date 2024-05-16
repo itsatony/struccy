@@ -994,13 +994,13 @@ func TestUpdateStructFields(t *testing.T) {
 	}
 
 	// Testing with admin role
-	updatedFields, err := UpdateStructFields(initial, updates, []string{"admin"})
+	updatedFields, _, err := UpdateStructFields(initial, updates, []string{"admin"}, true, false)
 	assert.NoError(t, err)
 	assert.Equal(t, expectedAdmin, initial)
 	assert.Len(t, updatedFields, 2, "Two fields should have been updated for admin")
 
 	// Testing with user role
-	updatedFields2, err := UpdateStructFields(initial2, updates, []string{"user"})
+	updatedFields2, _, err := UpdateStructFields(initial2, updates, []string{"user"}, true, false)
 	assert.NoError(t, err)
 	assert.Equal(t, expectedUser, initial2)
 	assert.Len(t, updatedFields2, 2, "Two fields should have been updated for user")
@@ -1019,32 +1019,32 @@ func TestSetField(t *testing.T) {
 	}
 
 	// Test case 1: Set field with admin role
-	err := SetField(entity, "Field1", "updated value", []string{"admin"})
+	err := SetField(entity, "Field1", "updated value", true, []string{"admin"})
 	assert.NoError(t, err)
 	assert.Equal(t, "updated value", entity.Field1)
 
 	// Test case 2: Set field with user role
-	err = SetField(entity, "Field1", "updated value", []string{"user"})
+	err = SetField(entity, "Field1", "updated value", true, []string{"user"})
 	assert.NoError(t, err)
 	assert.Equal(t, "updated value", entity.Field1)
 
 	// Test case 3: Set field with unauthorized role
-	err = SetField(entity, "Field2", 20, []string{"user"})
+	err = SetField(entity, "Field2", 20, true, []string{"user"})
 	assert.Equal(t, ErrUnauthorizedFieldSet, err)
 	assert.Equal(t, 10, entity.Field2)
 
 	// Test case 4: Set invalid field
-	err = SetField(entity, "InvalidField", "value", []string{"admin"})
+	err = SetField(entity, "InvalidField", "value", true, []string{"admin"})
 	assert.Equal(t, ErrInvalidFieldName, err)
 
 	// Test case 5: Set field with valid value type
-	err = SetField(entity, "Field1", "valid value", []string{"admin"})
+	err = SetField(entity, "Field1", "valid value", true, []string{"admin"})
 	assert.NoError(t, err)
 	assert.Equal(t, "valid value", entity.Field1)
 }
 
-// TestCanSetField tests the CanSetField function
-func TestCanSetField(t *testing.T) {
+// TestIsAllowedToSetField tests the IsAllowedToSetField function
+func TestIsAllowedToSetField(t *testing.T) {
 	type TestStruct struct {
 		Field1 string `writexs:"admin,user"`
 		Field2 int    `writexs:"admin"`
@@ -1053,29 +1053,29 @@ func TestCanSetField(t *testing.T) {
 	entity := &TestStruct{}
 
 	// Test case 1: Check field with admin role
-	assert.True(t, CanSetField(entity, "Field1", []string{"admin"}))
-	assert.True(t, CanSetField(entity, "Field2", []string{"admin"}))
+	assert.True(t, IsAllowedToSetField(entity, "Field1", []string{"admin"}))
+	assert.True(t, IsAllowedToSetField(entity, "Field2", []string{"admin"}))
 
 	// Test case 2: Check field with user role
-	assert.True(t, CanSetField(entity, "Field1", []string{"user"}))
-	assert.False(t, CanSetField(entity, "Field2", []string{"user"}))
+	assert.True(t, IsAllowedToSetField(entity, "Field1", []string{"user"}))
+	assert.False(t, IsAllowedToSetField(entity, "Field2", []string{"user"}))
 
 	// Test case 3: Check field with unauthorized role
-	assert.False(t, CanSetField(entity, "Field1", []string{"guest"}))
-	assert.False(t, CanSetField(entity, "Field2", []string{"guest"}))
+	assert.False(t, IsAllowedToSetField(entity, "Field1", []string{"guest"}))
+	assert.False(t, IsAllowedToSetField(entity, "Field2", []string{"guest"}))
 
 	// Test case 4: Check invalid field
-	assert.False(t, CanSetField(entity, "InvalidField", []string{"admin"}))
+	assert.False(t, IsAllowedToSetField(entity, "InvalidField", []string{"admin"}))
 }
 
-func TestCanSetFieldWithWildcardAndNegation(t *testing.T) {
+func TestIsAllowedToSetFieldWithWildcardAndNegation(t *testing.T) {
 	entity := &RoleBasedStruct{} // Assume this is already defined with the appropriate struct tags
 
-	assert.True(t, CanSetField(entity, "PublicField", []string{"admin"}), "Admin should access PublicField with wildcard")
-	assert.True(t, CanSetField(entity, "PublicField", []string{"user"}), "User should access PublicField with wildcard")
-	assert.True(t, CanSetField(entity, "PublicField", []string{"guest"}), "Guest should access PublicField with wildcard")
+	assert.True(t, IsAllowedToSetField(entity, "PublicField", []string{"admin"}), "Admin should access PublicField with wildcard")
+	assert.True(t, IsAllowedToSetField(entity, "PublicField", []string{"user"}), "User should access PublicField with wildcard")
+	assert.True(t, IsAllowedToSetField(entity, "PublicField", []string{"guest"}), "Guest should access PublicField with wildcard")
 
 	// Assuming "AdminField" is tagged with "!user"
-	assert.True(t, CanSetField(entity, "AdminField", []string{"admin"}), "Admin should access AdminField")
-	assert.False(t, CanSetField(entity, "AdminField", []string{"user"}), "User should not access AdminField with negation")
+	assert.True(t, IsAllowedToSetField(entity, "AdminField", []string{"admin"}), "Admin should access AdminField")
+	assert.False(t, IsAllowedToSetField(entity, "AdminField", []string{"user"}), "User should not access AdminField with negation")
 }

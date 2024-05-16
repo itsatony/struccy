@@ -54,6 +54,8 @@ Updates fields of a struct based on non-zero values from another struct, applyin
 - `entity`: Target struct to update.
 - `incomingEntity`: Struct containing update values.
 - `roles`: Roles applicable to the operation.
+- `ignoreZeroValues`: Flag to ignore zero values during update.
+- `ignoreEmptyStrings`: Flag to ignore empty strings during update.
 
 **Returns**:
 
@@ -69,13 +71,14 @@ Sets a value to a struct field with role-based access and type conversion.
 - `entity`: Struct to update.
 - `fieldName`: Field name to update.
 - `value`: Value to set.
+- `skipZeroVals`: Skip zero values during update.
 - `roles`: User roles for access validation.
 
 **Returns**:
 
 - Error if the field can't be set due to access restrictions or type incompatibilities.
 
-### CanSetField
+### IsAllowedToSetField
 
 Checks if a field can be set based on the user's roles.
 
