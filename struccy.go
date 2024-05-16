@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const Version = "1.5.0"
+const Version = "1.5.1"
 
 const (
 	tagNameReadXS  = "readxs"
@@ -40,6 +40,7 @@ var (
 	ErrInvalidFieldValue           = errors.New("invalid field value")
 	ErrInvalidFieldType            = errors.New("invalid field type")
 	ErrInvalidPtrType              = errors.New("invalid pointer type")
+	ErrFieldIsNil                  = errors.New("field value is nil")
 )
 
 // MergeStructUpdateTo merges the fields of a source struct into a destination struct.
@@ -683,7 +684,7 @@ func IsFieldAccessAllowed(roles []string, tagValue string) bool {
 	return finallyAllowed
 }
 
-func FilterMapFieldsByStructAndRole(referenceStructPointer any, source map[string]any, xsList []string) (filtered map[string]any, err error) {
+func FilterMapFieldsByStructAndRole(referenceStructPointer any, source map[string]any, xsList []string, ignoreNils bool) (filtered map[string]any, err error) {
 	filtered = make(map[string]any)
 	allowedFieldNames, err := GetFieldNamesWithWriteXS(referenceStructPointer, xsList)
 	if err != nil {
@@ -721,82 +722,40 @@ func FilterMapFieldsByStructAndRole(referenceStructPointer any, source map[strin
 			continue // Skip fields not found in the struct, no error needed
 		}
 
-		if reflect.TypeOf(fieldVal) != structField.Type {
-			val := reflect.ValueOf(fieldVal)
-			if structField.Type.Kind() == reflect.Slice && val.Kind() == reflect.Slice {
-				elemType := structField.Type.Elem()
-				newSlice := reflect.MakeSlice(structField.Type, val.Len(), val.Cap())
-				for i := 0; i < val.Len(); i++ {
-					elemVal := val.Index(i)
-					if elemVal.Kind() == reflect.Interface && !elemVal.IsNil() {
-						elemVal = elemVal.Elem()
-					}
-					// Attempt to handle numeric type conversion for integers and floats
-					if elemVal.Type().ConvertibleTo(elemType) {
-						if elemType.Kind() >= reflect.Int && elemType.Kind() <= reflect.Float64 {
-							// Handle integer and floating conversions
-							if convertedVal, ok := tryConvertInt(elemVal, elemType); ok {
-								newSlice.Index(i).Set(convertedVal)
-								continue
-							} else if convertedVal, ok := tryConvertFloat(elemVal, elemType); ok {
-								newSlice.Index(i).Set(convertedVal)
-								continue
-							}
-						}
-						newSlice.Index(i).Set(elemVal.Convert(elemType))
-					} else {
-						return nil, ErrTypeMismatch
-					}
-				}
-				fieldVal = newSlice.Interface()
-			} else if structField.Type.Kind() == reflect.Map && val.Kind() == reflect.Map {
-				keyType := structField.Type.Key()
-				elemType := structField.Type.Elem()
-				newMap := reflect.MakeMapWithSize(structField.Type, val.Len())
-				for _, keyVal := range val.MapKeys() {
-					originalElem := val.MapIndex(keyVal)
-					if originalElem.Kind() == reflect.Interface && !originalElem.IsNil() {
-						originalElem = originalElem.Elem()
-					}
-					// Convert key if necessary
-					if keyVal.Type().ConvertibleTo(keyType) {
-						convertedKey := keyVal
-						if keyVal.Type() != keyType {
-							convertedKey = keyVal.Convert(keyType)
-						}
-						// Convert value if necessary
-						if originalElem.Type().ConvertibleTo(elemType) {
-							convertedValue := originalElem
-							if originalElem.Type() != elemType {
-								if elemType.Kind() >= reflect.Int && elemType.Kind() <= reflect.Float64 {
-									// Handle integer and floating conversions for values
-									if convertedVal, ok := tryConvertInt(originalElem, elemType); ok {
-										convertedValue = convertedVal
-									} else if convertedVal, ok := tryConvertFloat(originalElem, elemType); ok {
-										convertedValue = convertedVal
-									}
-								} else {
-									convertedValue = originalElem.Convert(elemType)
-								}
-							}
-							newMap.SetMapIndex(convertedKey, convertedValue)
-						} else {
-							return nil, ErrTypeMismatch
-						}
-					} else {
-						return nil, ErrTypeMismatch
-					}
-				}
-				fieldVal = newMap.Interface()
-			} else {
-				return nil, ErrTypeMismatch
+		// Check if the field value is Nil
+		if fieldVal == nil {
+			if ignoreNils {
+				continue
 			}
+			return nil, fmt.Errorf("%w: %s", ErrFieldIsNil, fieldName)
+		}
+
+		// Check if the field value is compatible with the struct field type
+		if !isCompatibleType(fieldVal, structField.Type) {
+			return nil, fmt.Errorf("%w: %s", ErrTypeMismatch, fieldName)
 		}
 
 		// Finally, set the field name in the filtered map
 		filtered[fieldName] = fieldVal
 	}
 	return filtered, nil
+}
+
+func isCompatibleType(value any, targetType reflect.Type) bool {
+	valueType := reflect.TypeOf(value)
+
+	// Check if the types are directly assignable
+	if valueType.AssignableTo(targetType) {
+		return true
+	}
+
+	// Check if the value can be converted to the target type
+	if valueType.ConvertibleTo(targetType) {
+		return true
+	}
+
+	// fmt.Printf("FieldVal(%v) FieldType(%v) != StructField.Type(%v). NOT COMPATIBLE\n", valueType, valueType, targetType)
+	return false
 }
 
 // UpdateStructFields updates the fields of the given entity with the corresponding non-zero fields from the incomingEntity.
@@ -868,17 +827,22 @@ func SetField(entity any, fieldName string, value any, skipZeroVals bool, roles 
 	if !IsAllowedToSetField(entity, fieldName, roles) {
 		return ErrUnauthorizedFieldSet
 	}
+	val := reflect.ValueOf(value)
+	if (val.Kind() == reflect.Ptr && val.IsNil()) || val.IsZero() {
+		// Skip nil assignments without an error
+		// fmt.Printf("Skip nil/Zero assignment for field(%s) without an error\n", fieldName)
+		return nil
+	}
+	return setReflectField(field, value) // Set the field value
+}
+
+func setReflectField(field reflect.Value, value any) error {
 	fieldType := field.Type()
 	val := reflect.ValueOf(value)
 	// Check if the value type is convertible to the field type
 	// for all cases, where we have a field type of X and a value type of *X,
 	// like string and a value type of *string or int and a value type of *int,
 	// we will assign the field to a copy of the value of the pointer as after ensuring that the value is not nil
-	if (val.Kind() == reflect.Ptr && val.IsNil()) || val.IsZero() {
-		// Skip nil assignments without an error
-		// fmt.Printf("Skip nil/Zero assignment for field(%s) without an error\n", fieldName)
-		return nil
-	}
 	// fmt.Printf("Field(%s) Type: (%v) vs. Value-Type:(%v)\n", fieldName, fieldType, val.Type())
 	if val.Type().AssignableTo(fieldType) {
 		field.Set(val)
