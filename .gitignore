@@ -22,3 +22,7 @@ go.work
 
 code2markdown.sh
 project_code.md
+
+.vscode/
+
+.vscode/*

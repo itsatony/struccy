@@ -684,7 +684,22 @@ func IsFieldAccessAllowed(roles []string, tagValue string) bool {
 	return finallyAllowed
 }
 
-func FilterMapFieldsByStructAndRole(referenceStructPointer any, source map[string]any, xsList []string, ignoreNils bool) (filtered map[string]any, err error) {
+// @godoc FilterMapFieldsByStructAndRole filters the fields of a source map based on the fields of a reference struct.
+// It takes a pointer to the reference struct, a map of string field names and values, a list of allowed field names (xsList),
+// a flag indicating whether to ignore nil values, and a flag indicating whether to use JSON field names.
+// The function iterates over the allowed field names and checks if the field exists in the source map.
+// If a matching field is found, the value is checked for compatibility with the reference struct field type.
+// If the value is compatible, it is added to the filtered map with the field name as the key.
+// If the value is nil and ignoreNils is true, the field is skipped.
+// If the value is nil and ignoreNils is false, an error is returned.
+// If the value is not compatible with the reference struct field type, an error is returned.
+// If the field name is not found in the reference struct, it is skipped.
+// If the field name is not found in the source map, it is skipped.
+// If the field name is found in the reference struct but not in the source map, an error is returned.
+// If the field name is found in the source map but not in the reference struct, an error is returned.
+// If the reference struct is not a pointer to a struct, an error is returned.
+// If any error occurs during the process, the function returns an error.
+func FilterMapFieldsByStructAndRole(referenceStructPointer any, source map[string]any, xsList []string, ignoreNils bool, useJsonFieldNames bool) (filtered map[string]any, err error) {
 	filtered = make(map[string]any)
 	allowedFieldNames, err := GetFieldNamesWithWriteXS(referenceStructPointer, xsList)
 	if err != nil {
@@ -736,7 +751,11 @@ func FilterMapFieldsByStructAndRole(referenceStructPointer any, source map[strin
 		}
 
 		// Finally, set the field name in the filtered map
-		filtered[fieldName] = fieldVal
+		if useJsonFieldNames {
+			filtered[jsonFieldName] = fieldVal
+		} else {
+			filtered[fieldName] = fieldVal
+		}
 	}
 	return filtered, nil
 }
