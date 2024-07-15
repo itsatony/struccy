@@ -795,22 +795,22 @@ func UpdateStructFields(entity any, incomingEntity any, roles []string, skipZero
 	updatedFields = make(map[string]any)
 	unsettableFields = make(map[string]any)
 	incomingValue := reflect.ValueOf(incomingEntity).Elem()
-	entityType := reflect.TypeOf(entity).Elem()
+	incomingType := reflect.TypeOf(incomingEntity).Elem()
 
 	for i := 0; i < incomingValue.NumField(); i++ {
-		entityField := entityType.Field(i)
-		incomingField := incomingValue.FieldByName(entityField.Name)
+		fieldName := incomingType.Field(i).Name
+		incomingField := incomingValue.FieldByName(fieldName)
 		if !incomingField.IsValid() {
 			continue
 		}
 		// Check if the field is settable and authorized
-		if IsAllowedToSetField(entity, entityField.Name, roles) {
+		if IsAllowedToSetField(entity, fieldName, roles) {
 			fieldValue := incomingField.Interface()
-			err := SetField(entity, entityField.Name, fieldValue, skipZeroVals, roles)
+			err := SetField(entity, fieldName, fieldValue, skipZeroVals, roles)
 			if err == nil {
-				updatedFields[entityField.Name] = fieldValue
+				updatedFields[fieldName] = fieldValue
 			} else {
-				unsettableFields[entityField.Name] = fieldValue
+				unsettableFields[fieldName] = fieldValue
 				if ignoreUnsettables {
 					continue
 				}
