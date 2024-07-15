@@ -1006,6 +1006,33 @@ func TestUpdateStructFields(t *testing.T) {
 	assert.Len(t, updatedFields2, 2, "Two fields should have been updated for user")
 }
 
+type RoleBasedDto struct {
+	AdminField string
+}
+
+func TestUpdateStructFieldsPartial(t *testing.T) {
+	initial := &RoleBasedStruct{
+		PublicField: "initial",
+		AdminField:  "admin only",
+		UserField:   "user only",
+	}
+
+	updates := &RoleBasedDto{
+		AdminField: "updated admin",
+	}
+
+	expectedAdmin := &RoleBasedStruct{
+		PublicField: "initial",
+		AdminField:  "updated admin",
+		UserField:   "user only",
+	}
+
+	updatedFields, _, err := UpdateStructFields(initial, updates, []string{"admin"}, true, false)
+	assert.NoError(t, err)
+	assert.Equal(t, expectedAdmin, initial)
+	assert.Len(t, updatedFields, 1, "Admin field should have been updated")
+}
+
 // TestSetField tests the SetField function
 func TestSetField(t *testing.T) {
 	type TestStruct struct {
