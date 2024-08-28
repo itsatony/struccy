@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const Version = "1.5.5"
+const Version = "1.5.6"
 
 const (
 	tagNameReadXS  = "readxs"
@@ -775,6 +775,33 @@ func isCompatibleType(value any, targetType reflect.Type) bool {
 
 	// fmt.Printf("FieldVal(%v) FieldType(%v) != StructField.Type(%v). NOT COMPATIBLE\n", valueType, valueType, targetType)
 	return false
+}
+
+// ConvertSliceTypeFromAnyTo converts a slice of any to a slice of the specified type.
+// Example slice of any
+// mixedSlice := []any{"string1", 42, "string2", true, "string3"}
+// Convert to []string, ignoring non-assignable values
+// stringSlice, err := ConvertSliceTypeFromAnyTo[string](mixedSlice, true)
+//
+//	if err != nil {
+//		fmt.Println("Error:", err)
+//	} else {
+//
+//		fmt.Println("String slice (ignoring non-assignable):", stringSlice)
+//	}
+func ConvertSliceTypeFromAnyTo[T any](sliceOfAny []any, ignoreNonAssignable bool) ([]T, error) {
+	var result []T
+	targetType := reflect.TypeOf((*T)(nil)).Elem()
+
+	for _, v := range sliceOfAny {
+		if reflect.TypeOf(v).AssignableTo(targetType) {
+			result = append(result, v.(T))
+		} else if !ignoreNonAssignable {
+			return nil, fmt.Errorf("value %v is not assignable to type %v", v, targetType)
+		}
+	}
+
+	return result, nil
 }
 
 // UpdateStructFields updates the fields of the given entity with the corresponding non-zero fields from the incomingEntity.

@@ -1,7 +1,9 @@
 package struccy
 
 import (
+	"encoding/json"
 	"errors"
+	"log"
 	"reflect"
 	"testing"
 
@@ -1105,4 +1107,87 @@ func TestIsAllowedToSetFieldWithWildcardAndNegation(t *testing.T) {
 	// Assuming "AdminField" is tagged with "!user"
 	assert.True(t, IsAllowedToSetField(entity, "AdminField", []string{"admin"}), "Admin should access AdminField")
 	assert.False(t, IsAllowedToSetField(entity, "AdminField", []string{"user"}), "User should not access AdminField with negation")
+}
+
+func TestFilterStringSlice(t *testing.T) {
+	type TestStruct struct {
+		StringSlice []string `json:"string_slice" writexs:"admin" readxs:"admin"`
+	}
+
+	entity := &TestStruct{
+		StringSlice: []string{"initial1", "initial2"},
+	}
+
+	updateEntity := map[string]any{
+		"string_slice": []string{"updated1", "updated2"},
+	}
+
+	xsList := []string{"admin"}
+
+	// Test case 1: Update string slice
+	filtered, err := FilterMapFieldsByStructAndRole(entity, updateEntity, xsList, true, true)
+	assert.NoError(t, err)
+	filteredField, ok := filtered["string_slice"]
+	assert.True(t, ok)
+	filteredSlice, ok := filteredField.([]string)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"updated1", "updated2"}, filteredSlice)
+	assert.Equal(t, []string{"initial1", "initial2"}, entity.StringSlice)
+
+	// Test case 2: Update string slice with invalid type
+	updateEntity["string_slice"] = "invalid"
+	filtered, err = FilterMapFieldsByStructAndRole(entity, updateEntity, xsList, true, true)
+	assert.Error(t, err)
+	assert.Nil(t, filtered)
+
+	// Test case 3: Update string slice that is nil before update
+	entity.StringSlice = nil
+	updateEntity["string_slice"] = []string{"updated1", "updated2"}
+	filtered, err = FilterMapFieldsByStructAndRole(entity, updateEntity, xsList, true, true)
+	assert.NoError(t, err)
+	filteredField, ok = filtered["string_slice"]
+	assert.True(t, ok)
+	filteredSlice, ok = filteredField.([]string)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"updated1", "updated2"}, filteredSlice)
+	assert.Nil(t, entity.StringSlice)
+
+	// Test case 4: Update string slice with invalid type
+	entity.StringSlice = []string{"initial1", "initial2"}
+	updateEntity["string_slice"] = 123
+	filtered, err = FilterMapFieldsByStructAndRole(entity, updateEntity, xsList, true, true)
+	assert.Error(t, err)
+	assert.Nil(t, filtered)
+
+	// Test case 5: Update string slice with struct that is marshalled to JSON
+	entity.StringSlice = []string{"initial1", "initial2"}
+	updateStruct := TestStruct{
+		StringSlice: []string{"updated1", "updated2"},
+	}
+	jsonBytes, err := json.Marshal(updateStruct)
+	assert.NoError(t, err)
+	var updateMap map[string]any
+	err = json.Unmarshal(jsonBytes, &updateMap)
+	assert.NoError(t, err)
+	// list the types of the map fields
+	for k, v := range updateMap {
+		log.Printf("key: %v, value: %v, type: %T", k, v, v)
+	}
+	filtered, err = FilterMapFieldsByStructAndRole(entity, updateMap, xsList, true, true)
+	assert.Error(t, err)
+	assert.Nil(t, filtered)
+	assert.Equal(t, err.Error(), "type mismatch between struct and source map field: StringSlice")
+	anySlice, ok := updateMap["string_slice"].([]any)
+	assert.True(t, ok)
+	typedSlice, err := ConvertSliceTypeFromAnyTo[string](anySlice, true)
+	assert.NoError(t, err)
+	updateMap["string_slice"] = typedSlice
+	filtered, err = FilterMapFieldsByStructAndRole(entity, updateMap, xsList, true, true)
+	assert.NoError(t, err)
+	filteredField, ok = filtered["string_slice"]
+	assert.True(t, ok)
+	filteredSlice, ok = filteredField.([]string)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"updated1", "updated2"}, filteredSlice)
+	assert.Equal(t, []string{"initial1", "initial2"}, entity.StringSlice)
 }

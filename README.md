@@ -178,7 +178,7 @@ The `GetFieldNamesWithReadXS` function returns a slice of field names for the gi
 func GetFieldNamesWithReadXS(structPtr any, xsList []string) ([]string, error)
 ```
 
-#### Example
+#### Example for GetFieldNamesWithReadXS
 
 ```go
 type MyStruct struct {
@@ -210,7 +210,7 @@ The `GetFieldNamesWithWriteXS` function returns a slice of field names for the g
 func GetFieldNamesWithWriteXS(structPtr any, xsList []string) ([]string, error)
 ```
 
-#### Example
+#### Example for GetFieldNamesWithWriteXS
 
 ```go
 type MyStruct struct {
@@ -242,7 +242,7 @@ The `StructToMapFieldsWithReadXS` function converts the specified struct pointer
 func StructToMapFieldsWithReadXS(structPtr any, xsList []string) (map[string]any, error)
 ```
 
-#### Example
+#### Example for StructToMapFieldsWithReadXS
 
 ```go
 type MyStruct struct {
@@ -274,7 +274,7 @@ The `StructToMapFieldsWithWriteXS` function converts the specified struct pointe
 func StructToMapFieldsWithWriteXS(structPtr any, xsList []string) (map[string]any, error)
 ```
 
-#### Example
+#### Example for StructToMapFieldsWithWriteXS
 
 ```go
 type MyStruct struct {
@@ -306,7 +306,7 @@ The `StructToJSONFieldsWithReadXS` function converts the specified struct pointe
 func StructToJSONFieldsWithReadXS(structPtr any, xsList []string) (string, error)
 ```
 
-#### Example
+#### Example for StructToJSONFieldsWithReadXS
 
 ```go
 type MyStruct struct {
@@ -338,7 +338,7 @@ The `StructToJSONFieldsWithWriteXS` function converts the specified struct point
 func StructToJSONFieldsWithWriteXS(structPtr any, xsList []string) (string, error)
 ```
 
-#### Example
+#### Example for StructToJSONFieldsWithWriteXS
 
 ```go
 type MyStruct struct {
