@@ -1191,3 +1191,145 @@ func TestFilterStringSlice(t *testing.T) {
 	assert.Equal(t, []string{"updated1", "updated2"}, filteredSlice)
 	assert.Equal(t, []string{"initial1", "initial2"}, entity.StringSlice)
 }
+
+// test ConvertMapFieldsToTypedSlices
+func TestConvertMapFieldsToTypedSlices(t *testing.T) {
+	type TestStruct struct {
+		StringSlice  []string      `json:"string_slice"`
+		IntSlice     []int         `json:"int_slice"`
+		FloatSlice   []float64     `json:"float_slice"`
+		MixedField   []interface{} `json:"mixed_field"`
+		SingleString string        `json:"single_string"`
+		SingleInt    int           `json:"single_int"`
+	}
+
+	tests := []struct {
+		name                string
+		input               map[string]interface{}
+		ignoreNonAssignable bool
+		want                map[string]interface{}
+		wantErr             bool
+	}{
+		{
+			name: "Happy path - all fields convert correctly",
+			input: map[string]interface{}{
+				"string_slice":  []interface{}{"a", "b", "c"},
+				"int_slice":     []interface{}{1, 2, 3},
+				"float_slice":   []interface{}{1.1, 2.2, 3.3},
+				"mixed_field":   []interface{}{1, "two", true},
+				"single_string": "hello",
+				"single_int":    42,
+			},
+			ignoreNonAssignable: false,
+			want: map[string]interface{}{
+				"string_slice":  []string{"a", "b", "c"},
+				"int_slice":     []int{1, 2, 3},
+				"float_slice":   []float64{1.1, 2.2, 3.3},
+				"mixed_field":   []interface{}{1, "two", true},
+				"single_string": "hello",
+				"single_int":    42,
+			},
+			wantErr: false,
+		},
+		{
+			name: "Ignore non-assignable values",
+			input: map[string]interface{}{
+				"string_slice": []interface{}{"a", "b", 3, "c"},
+				"int_slice":    []interface{}{1, "two", 3},
+			},
+			ignoreNonAssignable: true,
+			want: map[string]interface{}{
+				"string_slice": []string{"a", "b", "c"},
+				"int_slice":    []int{1, 3},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Error on non-assignable values",
+			input: map[string]interface{}{
+				"string_slice": []interface{}{"a", "b", 3, "c"},
+			},
+			ignoreNonAssignable: false,
+			want:                nil,
+			wantErr:             true,
+		},
+		{
+			name: "Handle empty slices",
+			input: map[string]interface{}{
+				"string_slice": []interface{}{},
+				"int_slice":    []interface{}{},
+			},
+			ignoreNonAssignable: false,
+			want: map[string]interface{}{
+				"string_slice": []string{},
+				"int_slice":    []int{},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Handle missing fields",
+			input: map[string]interface{}{
+				"string_slice": []interface{}{"a", "b", "c"},
+				// int_slice is missing
+			},
+			ignoreNonAssignable: false,
+			want: map[string]interface{}{
+				"string_slice": []string{"a", "b", "c"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Handle extra fields in input",
+			input: map[string]interface{}{
+				"string_slice": []interface{}{"a", "b", "c"},
+				"extra_field":  "should be ignored",
+			},
+			ignoreNonAssignable: false,
+			want: map[string]interface{}{
+				"string_slice": []string{"a", "b", "c"},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ConvertMapFieldsToTypedSlices(tt.input, TestStruct{}, tt.ignoreNonAssignable)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ConvertMapFieldsToTypedSlices() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ConvertMapFieldsToTypedSlices() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConvertMapFieldsToTypedSlices_EdgeCases(t *testing.T) {
+	t.Run("Non-struct target", func(t *testing.T) {
+		_, err := ConvertMapFieldsToTypedSlices(map[string]interface{}{}, "not a struct", false)
+		if err == nil {
+			t.Errorf("Expected error when passing non-struct target, got nil")
+		}
+	})
+
+	t.Run("Nil input map", func(t *testing.T) {
+		type EmptyStruct struct{}
+		_, err := ConvertMapFieldsToTypedSlices(nil, EmptyStruct{}, false)
+		if err != nil {
+			t.Errorf("Unexpected error with nil input map: %v", err)
+		}
+	})
+
+	t.Run("Empty struct", func(t *testing.T) {
+		type EmptyStruct struct{}
+		got, err := ConvertMapFieldsToTypedSlices(map[string]interface{}{"foo": "bar"}, EmptyStruct{}, false)
+		if err != nil {
+			t.Errorf("Unexpected error with empty struct: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("Expected empty result map, got %v", got)
+		}
+	})
+}

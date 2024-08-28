@@ -4,11 +4,19 @@ All notable changes to the struccy package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.7] - 2024-08-28
+
+[1.5.7]: https://github.com/itsatony/struccy/releases/tag/v1.5.7
+
+### Additions in 1.5.7
+
+- ConvertMapFieldsToTypedSlices as a second-level convenience function to convert map fields to typed slices.
+
 ## [1.5.6] - 2024-08-28
 
 [1.5.6]: https://github.com/itsatony/struccy/releases/tag/v1.5.6
 
-### Added
+### Additions in 1.5.6
 
 - Added a new function ConvertSliceTypeFromAnyTo[T any](sliceOfAny []any, ignoreNonAssignable bool) ([]T, error) to convert a slice of any type to a slice of a specified type. The function allows for ignoring non-assignable values when converting elements. This is useful when incoming json arrays (potentially) contain mixed types, and you want to convert them to a slice of a specific type.
 

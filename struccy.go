@@ -804,6 +804,70 @@ func ConvertSliceTypeFromAnyTo[T any](sliceOfAny []any, ignoreNonAssignable bool
 	return result, nil
 }
 
+// ConvertMapFieldsToTypedSlices converts the fields of a map to typed slices based on the target struct.
+// It takes a map of string field names and values, a target struct, and a flag indicating whether to ignore non-assignable values.
+// The function iterates over the fields of the target struct and checks if there are corresponding entries in the input map.
+// If a matching entry is found, the value is converted to a typed slice based on the target struct field type.
+// If the field type is a slice and the value is a slice, the function attempts to convert the value to the appropriate type.
+// If the field type is not a slice or the value is not a slice, the value is assigned directly.
+// If the value is not assignable to the field type and ignoreNonAssignable is false, an error is returned.
+// If the value is not assignable to the field type and ignoreNonAssignable is true, the value is skipped.
+// If the target struct is not a struct or a pointer to a struct, an error is returned.
+func ConvertMapFieldsToTypedSlices(input map[string]any, targetStruct any, ignoreNonAssignable bool) (map[string]any, error) {
+	result := make(map[string]any)
+	targetType := reflect.TypeOf(targetStruct)
+
+	if targetType.Kind() == reflect.Ptr {
+		targetType = targetType.Elem()
+	}
+
+	if targetType.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("targetStruct must be a struct or a pointer to a struct")
+	}
+
+	for i := 0; i < targetType.NumField(); i++ {
+		field := targetType.Field(i)
+		jsonTag := field.Tag.Get("json")
+		if jsonTag == "" {
+			jsonTag = field.Name
+		}
+
+		if value, ok := input[jsonTag]; ok {
+			if field.Type.Kind() == reflect.Slice && reflect.TypeOf(value).Kind() == reflect.Slice {
+				sliceValue, ok := value.([]any)
+				if !ok {
+					return nil, fmt.Errorf("field %s is not a slice of any", jsonTag)
+				}
+
+				convertedSlice, err := convertSliceUsingReflection(sliceValue, field.Type.Elem(), ignoreNonAssignable)
+				if err != nil {
+					return nil, fmt.Errorf("error converting slice for field %s: %v", jsonTag, err)
+				}
+				result[jsonTag] = convertedSlice
+			} else {
+				result[jsonTag] = value
+			}
+		}
+	}
+
+	return result, nil
+}
+
+func convertSliceUsingReflection(sliceOfAny []any, targetType reflect.Type, ignoreNonAssignable bool) (any, error) {
+	sliceType := reflect.SliceOf(targetType)
+	slice := reflect.MakeSlice(sliceType, 0, len(sliceOfAny))
+
+	for _, v := range sliceOfAny {
+		if reflect.TypeOf(v).AssignableTo(targetType) {
+			slice = reflect.Append(slice, reflect.ValueOf(v))
+		} else if !ignoreNonAssignable {
+			return nil, fmt.Errorf("value %v is not assignable to type %v", v, targetType)
+		}
+	}
+
+	return slice.Interface(), nil
+}
+
 // UpdateStructFields updates the fields of the given entity with the corresponding non-zero fields from the incomingEntity.
 // It returns a map of the updated fields and their values. If a field is not authorized to be set based on the setterRole,
 // it is skipped without returning an error. If any other error occurs during the field setting, the function returns an error.
