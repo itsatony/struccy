@@ -725,7 +725,7 @@ func TestStructToMapFieldsWithWriteXS(t *testing.T) {
 		Field3: true,
 	}
 
-	fieldMap, err := StructToMapFieldsWithWriteXS(s, []string{"admin"})
+	fieldMap, err := StructToMapFieldsWithWriteXS(s, []string{"admin"}, false)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -733,6 +733,34 @@ func TestStructToMapFieldsWithWriteXS(t *testing.T) {
 	expected := map[string]any{
 		"Field1": "value1",
 		"Field2": 42,
+	}
+	if !reflect.DeepEqual(fieldMap, expected) {
+		t.Errorf("Expected field map: %v, got: %v", expected, fieldMap)
+	}
+}
+
+func TestStructToMapFieldsWithWriteXS_SkipNil(t *testing.T) {
+	type MyStruct struct {
+		Field1 *string `writexs:"admin,user"`
+		Field2 *int    `writexs:"admin"`
+		Field3 *bool   `writexs:"user"`
+	}
+
+	field1 := "value1"
+	field3 := true
+	s := &MyStruct{
+		Field1: &field1,
+		Field2: nil,
+		Field3: &field3,
+	}
+
+	fieldMap, err := StructToMapFieldsWithWriteXS(s, []string{"admin"}, true)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	expected := map[string]any{
+		"Field1": &field1,
 	}
 	if !reflect.DeepEqual(fieldMap, expected) {
 		t.Errorf("Expected field map: %v, got: %v", expected, fieldMap)
@@ -776,12 +804,38 @@ func TestStructToJSONFieldsWithWriteXS(t *testing.T) {
 		Field3: true,
 	}
 
-	jsonStr, err := StructToJSONFieldsWithWriteXS(s, []string{"admin"})
+	jsonStr, err := StructToJSONFieldsWithWriteXS(s, []string{"admin"}, false)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
 	expected := `{"Field1":"value1","Field2":42}`
+	if jsonStr != expected {
+		t.Errorf("Expected JSON string: %s, got: %s", expected, jsonStr)
+	}
+}
+
+func TestStructToJSONFieldsWithWriteXS_SkipNil(t *testing.T) {
+	type MyStruct struct {
+		Field1 *string `writexs:"admin,user"`
+		Field2 *int    `writexs:"admin"`
+		Field3 *bool   `writexs:"user"`
+	}
+
+	field1 := "value1"
+	field3 := true
+	s := &MyStruct{
+		Field1: &field1,
+		Field2: nil,
+		Field3: &field3,
+	}
+
+	jsonStr, err := StructToJSONFieldsWithWriteXS(s, []string{"admin"}, true)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	expected := `{"Field1":"value1"}`
 	if jsonStr != expected {
 		t.Errorf("Expected JSON string: %s, got: %s", expected, jsonStr)
 	}
