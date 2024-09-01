@@ -26,3 +26,6 @@ project_code.md
 .vscode/
 
 .vscode/*
+.textpatch/*
+project_merge.textpatch.md
+project_merge_with_ids.textpatch.md

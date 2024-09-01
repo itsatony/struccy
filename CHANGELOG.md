@@ -4,6 +4,14 @@ All notable changes to the struccy package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.8] - 2024-08-30
+
+[1.5.8]: https://github.com/itsatony/struccy/releases/tag/v1.5.8
+
+### Updates in 1.5.8
+
+- changed signature of method to allow control over skipping of nil values: `StructToMapFieldsWithWriteXS(structPtr any, xsList []string, skipNilValues bool) (map[string]any, error)`
+
 ## [1.5.7] - 2024-08-28
 
 [1.5.7]: https://github.com/itsatony/struccy/releases/tag/v1.5.7
