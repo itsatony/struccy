@@ -516,7 +516,7 @@ func StructToMapFieldsWithReadXS(structPtr any, xsList []string) (map[string]any
 //
 // If the provided `structPtr` is not a pointer to a struct, the function returns
 // an error (`ErrInvalidStructPointer`).
-func StructToMapFieldsWithWriteXS(structPtr any, xsList []string, skipNilValues bool) (map[string]any, error) {
+func StructToMapFieldsWithWriteXS(structPtr any, xsList []string, skipNilValues bool, useJsonFieldNames bool) (map[string]any, error) {
 	structValue := reflect.ValueOf(structPtr)
 
 	if structValue.Kind() != reflect.Ptr || structValue.Elem().Kind() != reflect.Struct {
@@ -538,7 +538,15 @@ func StructToMapFieldsWithWriteXS(structPtr any, xsList []string, skipNilValues 
 
 		writeXS := field.Tag.Get(tagNameWriteXS)
 		if IsFieldAccessAllowed(xsList, writeXS) {
-			fieldMap[field.Name] = value.Interface()
+
+			if useJsonFieldNames {
+				jsonFieldName := strings.Split(field.Tag.Get("json"), ",")[0] // Get the first part of the JSON tag
+				if jsonFieldName != "" && jsonFieldName != "-" {
+					fieldMap[jsonFieldName] = value.Interface()
+				}
+			} else {
+				fieldMap[field.Name] = value.Interface()
+			}
 		}
 	}
 
@@ -576,7 +584,7 @@ func StructToJSONFieldsWithReadXS(structPtr any, xsList []string) (string, error
 // If the provided `structPtr` is not a pointer to a struct, the function returns
 // an error (`ErrInvalidStructPointer`).
 func StructToJSONFieldsWithWriteXS(structPtr any, xsList []string, skipNilValues bool) (string, error) {
-	fieldMap, err := StructToMapFieldsWithWriteXS(structPtr, xsList, skipNilValues)
+	fieldMap, err := StructToMapFieldsWithWriteXS(structPtr, xsList, skipNilValues, true)
 	if err != nil {
 		return "", err
 	}

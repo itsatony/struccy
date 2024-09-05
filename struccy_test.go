@@ -725,7 +725,7 @@ func TestStructToMapFieldsWithWriteXS(t *testing.T) {
 		Field3: true,
 	}
 
-	fieldMap, err := StructToMapFieldsWithWriteXS(s, []string{"admin"}, false)
+	fieldMap, err := StructToMapFieldsWithWriteXS(s, []string{"admin"}, false, false)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -754,13 +754,41 @@ func TestStructToMapFieldsWithWriteXS_SkipNil(t *testing.T) {
 		Field3: &field3,
 	}
 
-	fieldMap, err := StructToMapFieldsWithWriteXS(s, []string{"admin"}, true)
+	fieldMap, err := StructToMapFieldsWithWriteXS(s, []string{"admin"}, true, false)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
 	expected := map[string]any{
 		"Field1": &field1,
+	}
+	if !reflect.DeepEqual(fieldMap, expected) {
+		t.Errorf("Expected field map: %v, got: %v", expected, fieldMap)
+	}
+}
+
+func TestStructToMapFieldsWithWriteXS_SkipNilJsonFieldNames(t *testing.T) {
+	type MyStruct struct {
+		Field1 *string `writexs:"admin,user" json:"field_1"`
+		Field2 *int    `writexs:"admin" json:"field2"`
+		Field3 *bool   `writexs:"user" json:"field3"`
+	}
+
+	field1 := "value1"
+	field3 := true
+	s := &MyStruct{
+		Field1: &field1,
+		Field2: nil,
+		Field3: &field3,
+	}
+
+	fieldMap, err := StructToMapFieldsWithWriteXS(s, []string{"admin"}, true, true)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	expected := map[string]any{
+		"field_1": &field1,
 	}
 	if !reflect.DeepEqual(fieldMap, expected) {
 		t.Errorf("Expected field map: %v, got: %v", expected, fieldMap)
@@ -793,9 +821,9 @@ func TestStructToJSONFieldsWithReadXS(t *testing.T) {
 
 func TestStructToJSONFieldsWithWriteXS(t *testing.T) {
 	type MyStruct struct {
-		Field1 string `writexs:"admin,user"`
-		Field2 int    `writexs:"admin"`
-		Field3 bool   `writexs:"user"`
+		Field1 string `writexs:"admin,user" json:"field1"`
+		Field2 int    `writexs:"admin" json:"field2"`
+		Field3 bool   `writexs:"user" json:"field3"`
 	}
 
 	s := &MyStruct{
@@ -809,7 +837,7 @@ func TestStructToJSONFieldsWithWriteXS(t *testing.T) {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
-	expected := `{"Field1":"value1","Field2":42}`
+	expected := `{"field1":"value1","field2":42}`
 	if jsonStr != expected {
 		t.Errorf("Expected JSON string: %s, got: %s", expected, jsonStr)
 	}
@@ -817,9 +845,9 @@ func TestStructToJSONFieldsWithWriteXS(t *testing.T) {
 
 func TestStructToJSONFieldsWithWriteXS_SkipNil(t *testing.T) {
 	type MyStruct struct {
-		Field1 *string `writexs:"admin,user"`
-		Field2 *int    `writexs:"admin"`
-		Field3 *bool   `writexs:"user"`
+		Field1 *string `writexs:"admin,user" json:"field1"`
+		Field2 *int    `writexs:"admin" json:"field2"`
+		Field3 *bool   `writexs:"user" json:"field3"`
 	}
 
 	field1 := "value1"
@@ -835,7 +863,7 @@ func TestStructToJSONFieldsWithWriteXS_SkipNil(t *testing.T) {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
-	expected := `{"Field1":"value1"}`
+	expected := `{"field1":"value1"}`
 	if jsonStr != expected {
 		t.Errorf("Expected JSON string: %s, got: %s", expected, jsonStr)
 	}
