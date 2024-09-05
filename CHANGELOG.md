@@ -4,6 +4,14 @@ All notable changes to the struccy package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.9] - 2024-09-05
+
+[1.5.9]: https://github.com/itsatony/struccy/releases/tag/v1.5.9
+
+### Updates in 1.5.9
+
+- added 'useJsonFieldNames' parameter to StructToMapFieldsWithWriteXS
+
 ## [1.5.8] - 2024-08-30
 
 [1.5.8]: https://github.com/itsatony/struccy/releases/tag/v1.5.8
