@@ -532,7 +532,7 @@ func StructToMapFieldsWithWriteXS(structPtr any, xsList []string, skipNilValues 
 		field := structType.Field(i)
 		value := structValue.Field(i)
 
-		if skipNilValues && value.IsNil() {
+		if skipNilValues && isNil(value) {
 			continue
 		}
 
@@ -1198,4 +1198,12 @@ func canConvertFloat(val reflect.Value) bool {
 	default:
 		return false
 	}
+}
+
+func isNil(val reflect.Value) bool {
+	switch val.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return val.IsNil()
+	}
+	return false
 }
