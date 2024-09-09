@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const Version = "1.5.9"
+const Version = "1.5.10"
 
 const (
 	tagNameReadXS  = "readxs"

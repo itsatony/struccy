@@ -4,6 +4,14 @@ All notable changes to the struccy package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.10] - 2024-09-09
+
+[1.5.10]: https://github.com/itsatony/struccy/releases/tag/v1.5.10
+
+### Updates in 1.5.10
+
+- smarter IsNil chacks in StructToMapFieldsWithWriteXS
+
 ## [1.5.9] - 2024-09-05
 
 [1.5.9]: https://github.com/itsatony/struccy/releases/tag/v1.5.9
